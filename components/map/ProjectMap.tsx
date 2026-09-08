@@ -720,6 +720,26 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     closePanel();
   }, [clearFilter, closePanel, applyContourDensity]);
 
+  // Global "Esc" keyboard shortcut to close side panel and reset map to 2D overview
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+        // If full-screen image lightbox is active, allow lightbox to handle its own close first
+        if (document.querySelector('.project-slideshow')) {
+          return;
+        }
+
+        if (isPanelOpen || activeItem != null || is3D) {
+          e.preventDefault();
+          resetMap();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPanelOpen, activeItem, is3D, resetMap]);
+
   const handleZoomIn = useCallback(() => {
     mapInstanceRef.current?.zoomIn({ duration: 300 });
   }, []);
@@ -1559,10 +1579,12 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
                       <button
                         className="panel-close-btn"
                         id="panel-close"
-                        aria-label="Close project panel"
-                        onClick={closePanel}
+                        aria-label="Close project panel and reset map (Esc)"
+                        title="Press Esc to close and reset map"
+                        onClick={resetMap}
                       >
                         <span>CLOSE</span>
+                        <kbd className="panel-esc-badge">ESC</kbd>
                         <svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6">
                           <path d="M1 1L13 13M13 1L1 13" />
                         </svg>
@@ -1875,10 +1897,12 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
                       <button
                         className="panel-close-btn"
                         id="panel-close"
-                        aria-label="Close project panel"
-                        onClick={closePanel}
+                        aria-label="Close project panel and reset map (Esc)"
+                        title="Press Esc to close and reset map"
+                        onClick={resetMap}
                       >
                         <span>CLOSE</span>
+                        <kbd className="panel-esc-badge">ESC</kbd>
                         <svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6">
                           <path d="M1 1L13 13M13 1L1 13" />
                         </svg>
