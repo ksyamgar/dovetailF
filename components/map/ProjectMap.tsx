@@ -261,19 +261,35 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     const canvas = mapInstanceRef.current?.getCanvas();
     const w = canvas?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200);
     const isDesktop = w > 860;
-    const panelWidth = isDesktop ? Math.round(w * (2 / 3)) : 0;
+    const panelEl = typeof document !== 'undefined' ? document.getElementById('project-panel') : null;
+    const panelWidth = isDesktop
+      ? (panelEl && panelEl.offsetWidth > 100 ? panelEl.offsetWidth : Math.round(w * (2 / 3)))
+      : 0;
     return isDesktop
       ? { top: 70, bottom: 70, left: 0, right: panelWidth }
       : { top: 60, bottom: 60, left: 20, right: 20 };
   }, []);
 
   // Circular Vignette Architectural Lens Mask
-  const showCircularMask = useCallback(() => {
+  const showCircularMask = useCallback((targetLng?: number, targetLat?: number) => {
     const mask = document.querySelector('#terrain-circular-mask') as HTMLElement | null;
     const map = mapInstanceRef.current;
     if (!mask || !map) return;
     const canvas = map.getCanvas();
     if (!canvas) return;
+
+    if (targetLng != null && targetLat != null) {
+      try {
+        const p = map.project([targetLng, targetLat]);
+        if (p && p.x >= 0 && p.y >= 0 && p.x <= canvas.clientWidth && p.y <= canvas.clientHeight) {
+          mask.style.setProperty('--mask-cx', `${((p.x / canvas.clientWidth) * 100).toFixed(2)}%`);
+          mask.style.setProperty('--mask-cy', `${((p.y / canvas.clientHeight) * 100).toFixed(2)}%`);
+          mask.classList.add('is-active');
+          return;
+        }
+      } catch (_) {}
+    }
+
     const padding = getDetailPadding();
     const cx = padding.left + (canvas.clientWidth - padding.left - padding.right) / 2;
     const cy = padding.top + (canvas.clientHeight - padding.top - padding.bottom) / 2;
@@ -290,10 +306,28 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }
   }, []);
 
-  // In MapLibre GL v5, the camera center naturally targets the exact geographical coordinate [lng, lat].
-  // Artificial trigonometric offsets cause points to drift kilometers away when tilting or rotating.
-  const getCompensatedCenter = useCallback((lng: number, lat: number, _elevM?: number, _pitchDeg?: number, _bearingDeg?: number): [number, number] => {
-    return [lng, lat];
+  // Compensates for 3D terrain elevation under pitched perspective view.
+  // In MapLibre GL, an elevated point at altitude `elevM` tilted at `pitchDeg` projects upward
+  // along the line of sight. Shifting the camera's ground datum center along the viewing azimuth
+  // by (elev * tan(pitch)) ensures the elevated focal point remains dead-center in the camera
+  // viewport at any bearing angle throughout the 360° turntable.
+  const getCompensatedCenter = useCallback((lng: number, lat: number, elevM = 1500, pitchDeg = 46, bearingDeg = 0): [number, number] => {
+    if (pitchDeg <= 0) return [lng, lat];
+    const elev = elevM > 0 ? elevM : 1500;
+    const terrainExaggeration = 1.25;
+    const effectiveElev = elev * terrainExaggeration;
+    const pitchRad = (pitchDeg * Math.PI) / 180;
+    const bearingRad = (bearingDeg * Math.PI) / 180;
+    const latRad = (lat * Math.PI) / 180;
+
+    const effectiveDist = effectiveElev * Math.tan(pitchRad);
+    const metersPerDegLat = 111195;
+    const metersPerDegLng = 111195 * Math.cos(latRad);
+
+    const dLat = (effectiveDist * Math.cos(bearingRad)) / metersPerDegLat;
+    const dLng = (effectiveDist * Math.sin(bearingRad)) / metersPerDegLng;
+
+    return [lng + dLng, lat + dLat];
   }, []);
 
   // Continuous 360° cinematic turntable orbit locked directly around the focal point
@@ -322,27 +356,49 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
       turntableBearingRef.current = (turntableBearingRef.current + currentSpeed * deltaSec) % 360;
 
+      // Continuously sample actual terrain elevation once DEM tiles finish streaming
+      const demElev = map.queryTerrainElevation([
+        turntableTargetRef.current.lng,
+        turntableTargetRef.current.lat
+      ]);
+      const currentElev = (demElev != null && demElev > 0)
+        ? demElev / 1.25
+        : turntableTargetRef.current.elevation;
+
       const compensatedCenter = getCompensatedCenter(
         turntableTargetRef.current.lng,
         turntableTargetRef.current.lat,
-        turntableTargetRef.current.elevation,
+        currentElev,
         turntableTargetRef.current.pitch,
         turntableBearingRef.current
       );
+
+      const currentPadding = getDetailPadding();
 
       map.jumpTo({
         center: compensatedCenter,
         bearing: turntableBearingRef.current,
         pitch: turntableTargetRef.current.pitch,
         zoom: turntableTargetRef.current.zoom,
-        padding: turntableTargetRef.current.padding
+        padding: currentPadding
       });
+
+      // Dynamically lock circular vignette lens directly onto the projected focal point
+      const mask = document.querySelector('#terrain-circular-mask') as HTMLElement | null;
+      const canvas = map.getCanvas();
+      if (mask && canvas) {
+        try {
+          const p = map.project([turntableTargetRef.current.lng, turntableTargetRef.current.lat]);
+          mask.style.setProperty('--mask-cx', `${((p.x / canvas.clientWidth) * 100).toFixed(2)}%`);
+          mask.style.setProperty('--mask-cy', `${((p.y / canvas.clientHeight) * 100).toFixed(2)}%`);
+        } catch (_) {}
+      }
 
       turntableRafRef.current = requestAnimationFrame(orbitFrame);
     };
 
     turntableRafRef.current = requestAnimationFrame(orbitFrame);
-  }, [stopTurntable, getCompensatedCenter]);
+  }, [stopTurntable, getCompensatedCenter, getDetailPadding]);
 
   const enable3DTerrain = useCallback((map: MapLibreInstance) => {
     try {
@@ -523,7 +579,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }
     const demElev = map.queryTerrainElevation([lng, lat]);
     if (demElev != null && demElev > 0) {
-      elevM = demElev;
+      elevM = demElev / 1.25;
     }
 
     const padding = getDetailPadding();
@@ -534,7 +590,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
     // Activate 3D terrain and lens mask
     enable3DTerrain(map);
-    showCircularMask();
+    showCircularMask(lng, lat);
 
     const finalCenter = getCompensatedCenter(lng, lat, elevM, finalPitch, finalBearing);
 
@@ -1002,6 +1058,22 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         }
       } catch (_) {
         setElevation('ELEV — —');
+      }
+    });
+
+    map.on('render', () => {
+      if (activePointCoordRef.current) {
+        const mask = document.querySelector('#terrain-circular-mask') as HTMLElement | null;
+        if (mask && mask.classList.contains('is-active')) {
+          try {
+            const p = map.project([activePointCoordRef.current.lng, activePointCoordRef.current.lat]);
+            const c = map.getCanvas();
+            if (p && c && p.x >= 0 && p.x <= c.clientWidth && p.y >= 0 && p.y <= c.clientHeight) {
+              mask.style.setProperty('--mask-cx', `${((p.x / c.clientWidth) * 100).toFixed(2)}%`);
+              mask.style.setProperty('--mask-cy', `${((p.y / c.clientHeight) * 100).toFixed(2)}%`);
+            }
+          } catch (_) {}
+        }
       }
     });
 
