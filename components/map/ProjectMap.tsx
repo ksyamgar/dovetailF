@@ -316,7 +316,8 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     turntableBearingRef.current = startBearing;
     turntableTargetRef.current = { lng, lat, padding, pitch: targetPitch, zoom: targetZoom, elevation: elevM };
 
-    let lastTime = performance.now();
+    const startTime = performance.now();
+    let lastTime = startTime;
     const speedDegPerSec = 7.2; // ~50s per 360° revolution
 
     const orbitFrame = (now: number) => {
@@ -327,7 +328,12 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       const deltaSec = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
-      turntableBearingRef.current = (turntableBearingRef.current + speedDegPerSec * deltaSec) % 360;
+      // Silky acceleration ramp over the first 1.2s so the camera eases into orbit
+      const elapsedOrbit = (now - startTime) / 1000;
+      const ramp = Math.min(elapsedOrbit / 1.2, 1);
+      const currentSpeed = speedDegPerSec * (ramp * ramp * (3 - 2 * ramp));
+
+      turntableBearingRef.current = (turntableBearingRef.current + currentSpeed * deltaSec) % 360;
 
       const compensatedCenter = getCompensatedCenter(
         turntableTargetRef.current.lng,
@@ -450,23 +456,65 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }, 100);
   }, [applyContourDensity]);
 
-  // Update pin visual selection highlight and tooltip
+  // Update pin visual selection highlight and smoothly hide/show other 2D elements
   const updatePinHighlights = useCallback((activeLng: number | null, activeLat: number | null) => {
+    const isInspecting = activeLng != null && activeLat != null;
     const allMarkers = [...projectMarkersRef.current, ...officeMarkersRef.current];
+
     allMarkers.forEach(marker => {
       const el = marker.getElement();
       const pos = marker.getLngLat();
-      const isMatch = activeLng != null && activeLat != null &&
+      const isMatch = isInspecting &&
         Math.abs(pos.lng - activeLng) < 0.0001 &&
         Math.abs(pos.lat - activeLat) < 0.0001;
 
+      el.style.transition = 'opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s ease';
+
       if (isMatch) {
         el.classList.add('is-highlighted');
-      } else {
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1)';
+        el.style.pointerEvents = 'auto';
+      } else if (isInspecting) {
+        // In 3D site focus: smoothly fade out all other pins so only the active project is showcased
         el.classList.remove('is-highlighted');
+        el.style.opacity = '0';
+        el.style.transform = 'scale(0.7)';
+        el.style.pointerEvents = 'none';
+      } else {
+        // Overview mode: smoothly restore all pins
+        el.classList.remove('is-highlighted');
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1)';
+        el.style.pointerEvents = 'auto';
       }
     });
-  }, []);
+
+    // Smoothly fade city markers and regional cluster badges out when entering 3D inspection
+    cityMarkersRef.current.forEach(marker => {
+      const el = marker.getElement();
+      el.style.transition = 'opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
+      el.style.opacity = isInspecting ? '0' : '1';
+      el.style.transform = isInspecting ? 'scale(0.7)' : 'scale(1)';
+      el.style.pointerEvents = isInspecting ? 'none' : 'auto';
+    });
+
+    clusterMarkersRef.current.forEach(marker => {
+      const el = marker.getElement();
+      el.style.transition = 'opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
+      el.style.opacity = isInspecting ? '0' : '1';
+      el.style.transform = isInspecting ? 'scale(0.7)' : 'scale(1)';
+      el.style.pointerEvents = isInspecting ? 'none' : 'auto';
+    });
+
+    // Fade 2D national boundary line during 3D inspection to maintain pristine terrain focus
+    const map = mapInstanceRef.current;
+    if (map && map.getLayer('india_boundary_line')) {
+      try {
+        map.setLayoutProperty('india_boundary_line', 'visibility', isInspecting ? 'none' : (showBoundary ? 'visible' : 'none'));
+      } catch (_) {}
+    }
+  }, [showBoundary]);
 
   // Cinematic Flying Drone Arc Path + 3D Terrain Activation + Turnaround Orbit
   const flyToLocation = useCallback((lng: number, lat: number, altStr?: string, targetZoom = 12.3) => {
@@ -494,15 +542,16 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     const padding = getDetailPadding();
     const finalPitch = 46;
     const finalBearing = map.getBearing() + 14;
-    const duration = 1100;
+    // Luxurious, smooth duration for architectural drone trajectory
+    const duration = 2300;
 
-    // Turn on 3D DEM terrain and circular vignette lens mask
+    // Activate 3D terrain and lens mask
     enable3DTerrain(map);
     showCircularMask();
 
     const finalCenter = getCompensatedCenter(lng, lat, elevM, finalPitch, finalBearing);
 
-    // Agile, smooth flight arc to site
+    // Silky, cinema-grade flight arc easing into the mountain valley
     map.flyTo({
       center: finalCenter,
       zoom: targetZoom,
@@ -510,8 +559,9 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       bearing: finalBearing,
       padding,
       duration,
-      curve: 1.08,
-      speed: 1.6,
+      curve: 1.42, // Smooth, natural parabolic arc
+      speed: 0.92, // Gentle cinematic pacing
+      easing: (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2), // Buttery cubic easeInOut
       essential: true
     });
 
@@ -524,11 +574,14 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         Math.abs(activePointCoordRef.current.lat - lat) > 0.0001) {
         return;
       }
-      startTurntable(lng, lat, padding, finalPitch, targetZoom, elevM, finalBearing);
+      // Gentle settle pause before starting the cinematic orbit
+      flightTimeoutRef.current = setTimeout(() => {
+        startTurntable(lng, lat, padding, finalPitch, targetZoom, elevM, finalBearing);
+      }, 350);
     };
 
     map.once('moveend', onArrival);
-    flightTimeoutRef.current = setTimeout(onArrival, duration + 100);
+    flightTimeoutRef.current = setTimeout(onArrival, duration + 150);
   }, [stopTurntable, clearFlightTimeouts, updatePinHighlights, getDetailPadding, enable3DTerrain, showCircularMask, getCompensatedCenter, startTurntable]);
 
   const fitAllPoints = useCallback((animate = true) => {
