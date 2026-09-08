@@ -335,18 +335,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     stopTurntable();
     autoRotateRef.current = true;
     turntableBearingRef.current = startBearing;
-
-    // Use exact, fixed elevation so the camera center never fluctuates frame-by-frame
-    const map = mapInstanceRef.current;
-    let stableElev = elevM;
-    if (map) {
-      const demElev = map.queryTerrainElevation([lng, lat]);
-      if (demElev != null && demElev > 0) {
-        stableElev = demElev / 1.25;
-      }
-    }
-
-    turntableTargetRef.current = { lng, lat, padding, pitch: targetPitch, zoom: targetZoom, elevation: stableElev };
+    turntableTargetRef.current = { lng, lat, padding, pitch: targetPitch, zoom: targetZoom, elevation: elevM };
 
     const startTime = performance.now();
     let lastTime = startTime;
@@ -360,13 +349,14 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       const deltaSec = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
-      // Silky acceleration ramp over the first 0.8s so the camera eases into orbit
+      // Silky acceleration ramp over the first 1.2s so the camera eases into orbit
       const elapsedOrbit = (now - startTime) / 1000;
-      const ramp = Math.min(elapsedOrbit / 0.8, 1);
+      const ramp = Math.min(elapsedOrbit / 1.2, 1);
       const currentSpeed = speedDegPerSec * (ramp * ramp * (3 - 2 * ramp));
 
       turntableBearingRef.current = (turntableBearingRef.current + currentSpeed * deltaSec) % 360;
 
+      // Use the stable, fixed focal altitude so the camera never oscillates or bounces up and down
       const compensatedCenter = getCompensatedCenter(
         turntableTargetRef.current.lng,
         turntableTargetRef.current.lat,
@@ -421,10 +411,11 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
   const disable3DTerrain = useCallback((map: MapLibreInstance) => {
     try {
+      // Keep DEM terrain prewarmed in GPU memory, but hide hillshade so 2D overview remains clean & flat
       if (map.getLayer('hillshade')) {
         map.setLayoutProperty('hillshade', 'visibility', 'none');
       }
-      // In 2D overview mode: ensure contour lines are visible
+      // Restore contour lines for 2D overview
       ['contour-minor', 'contour-major'].forEach(id => {
         if (map.getLayer(id)) {
           map.setLayoutProperty(id, 'visibility', 'visible');
@@ -500,8 +491,8 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }, 100);
   }, [applyContourDensity]);
 
-  // Update pin visual selection highlight and instantly hide/show other 2D elements
-  const updatePinHighlights = useCallback((activeLng: number | null, activeLat: number | null) => {
+  // Update pin visual selection highlight and instantly or smoothly hide/show other 2D elements
+  const updatePinHighlights = useCallback((activeLng: number | null, activeLat: number | null, instant = false) => {
     const isInspecting = activeLng != null && activeLat != null;
     const allMarkers = [...projectMarkersRef.current, ...officeMarkersRef.current];
 
@@ -512,65 +503,82 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         Math.abs(pos.lng - activeLng) < 0.0001 &&
         Math.abs(pos.lat - activeLat) < 0.0001;
 
+      if (instant && isInspecting) {
+        el.style.transition = 'none';
+      } else {
+        el.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
+      }
+
       if (isMatch) {
         el.classList.add('is-highlighted');
         el.style.display = '';
         el.style.opacity = '1';
         el.style.transform = 'scale(1)';
         el.style.pointerEvents = 'auto';
-        el.style.transition = 'transform 0.25s ease';
+        // Hide hover label tooltip during 3D inspection so it never blocks the 3D model
+        const label = el.querySelector('.map-pin-label');
+        if (label) {
+          (label as HTMLElement).style.display = 'none';
+        }
       } else if (isInspecting) {
-        // In 3D site focus: INSTANTLY hide all other pins so only the active project is showcased
+        // In 3D site focus: instantly hide all other pins so only the active project is showcased
         el.classList.remove('is-highlighted');
-        el.style.transition = 'none';
-        el.style.display = 'none';
         el.style.opacity = '0';
+        el.style.transform = 'scale(0.5)';
         el.style.pointerEvents = 'none';
+        if (instant) {
+          el.style.display = 'none';
+        }
       } else {
         // Overview mode: restore all pins
         el.classList.remove('is-highlighted');
         el.style.display = '';
-        el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
         el.style.opacity = '1';
         el.style.transform = 'scale(1)';
         el.style.pointerEvents = 'auto';
+        const label = el.querySelector('.map-pin-label');
+        if (label) {
+          (label as HTMLElement).style.display = '';
+        }
       }
     });
 
-    // INSTANTLY hide city markers and regional cluster badges when entering 3D inspection
+    // Instantly hide city markers and regional cluster badges on 3D inspection
     cityMarkersRef.current.forEach(marker => {
       const el = marker.getElement();
-      if (isInspecting) {
+      if (instant && isInspecting) {
         el.style.transition = 'none';
         el.style.display = 'none';
         el.style.opacity = '0';
-        el.style.pointerEvents = 'none';
+      } else if (isInspecting) {
+        el.style.transition = 'opacity 0.25s ease';
+        el.style.opacity = '0';
       } else {
+        el.style.transition = 'opacity 0.35s ease';
         el.style.display = '';
-        el.style.transition = 'opacity 0.3s ease';
         el.style.opacity = '1';
-        el.style.transform = 'scale(1)';
-        el.style.pointerEvents = 'auto';
       }
+      el.style.pointerEvents = isInspecting ? 'none' : 'auto';
     });
 
     clusterMarkersRef.current.forEach(marker => {
       const el = marker.getElement();
-      if (isInspecting) {
+      if (instant && isInspecting) {
         el.style.transition = 'none';
         el.style.display = 'none';
         el.style.opacity = '0';
-        el.style.pointerEvents = 'none';
+      } else if (isInspecting) {
+        el.style.transition = 'opacity 0.25s ease';
+        el.style.opacity = '0';
       } else {
+        el.style.transition = 'opacity 0.35s ease';
         el.style.display = '';
-        el.style.transition = 'opacity 0.3s ease';
         el.style.opacity = '1';
-        el.style.transform = 'scale(1)';
-        el.style.pointerEvents = 'auto';
       }
+      el.style.pointerEvents = isInspecting ? 'none' : 'auto';
     });
 
-    // Instantly hide 2D national boundary line during 3D inspection to maintain pristine terrain focus
+    // Instantly hide 2D national boundary line during 3D inspection
     const map = mapInstanceRef.current;
     if (map && map.getLayer('india_boundary_line')) {
       try {
@@ -579,7 +587,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }
   }, [showBoundary]);
 
-  // Fast, Direct Flying Drone Arc Path + 3D Terrain + Instant Turntable
+  // Fast, crisp cinematic drone flight + 3D Terrain Activation + Turnaround Orbit
   const flyToLocation = useCallback((lng: number, lat: number, altStr?: string, targetZoom = 12.3) => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -589,10 +597,11 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
     setIs3D(true);
     activePointCoordRef.current = { lng, lat };
-    // INSTANTLY hide 2D elements
-    updatePinHighlights(lng, lat);
 
-    // Parse numeric altitude if available (e.g. "1,312 m" -> 1312)
+    // Instantly hide 2D pins, clusters, labels, and boundary lines on the very frame of the click
+    updatePinHighlights(lng, lat, true);
+
+    // Query elevation from already-preloaded DEM terrain (with fallback to project metadata)
     let elevM = 1500;
     if (altStr) {
       const num = parseInt(altStr.replace(/[^0-9]/g, ''), 10);
@@ -606,16 +615,15 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     const padding = getDetailPadding();
     const finalPitch = 46;
     const finalBearing = map.getBearing() + 14;
-    // Fast, crisp cinematic drone flight
-    const duration = 1100;
+    // Brisk, cinematic drone flight (1200ms) with zero lagging or oscillating
+    const duration = 1200;
 
-    // Activate 3D terrain and lens mask
+    // Activate 3D hillshading and circular lens mask
     enable3DTerrain(map);
     showCircularMask(lng, lat);
 
     const finalCenter = getCompensatedCenter(lng, lat, elevM, finalPitch, finalBearing);
 
-    // Fast, smooth flight directly to target site
     map.flyTo({
       center: finalCenter,
       zoom: targetZoom,
@@ -623,9 +631,9 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       bearing: finalBearing,
       padding,
       duration,
-      curve: 1.18,
-      speed: 1.35,
-      easing: (t: number) => 1 - Math.pow(1 - t, 3), // Smooth cubic easeOut
+      curve: 1.15, // Direct, clean trajectory
+      speed: 1.25,
+      easing: (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t), // Crisp easeInOut
       essential: true
     });
 
@@ -638,12 +646,14 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         Math.abs(activePointCoordRef.current.lat - lat) > 0.0001) {
         return;
       }
-      // Immediately start smooth turntable orbit with zero dead pause
-      startTurntable(lng, lat, padding, finalPitch, targetZoom, elevM, finalBearing);
+      // Start turntable seamlessly with stable, locked altitude
+      flightTimeoutRef.current = setTimeout(() => {
+        startTurntable(lng, lat, padding, finalPitch, targetZoom, elevM, finalBearing);
+      }, 100);
     };
 
     map.once('moveend', onArrival);
-    flightTimeoutRef.current = setTimeout(onArrival, duration + 40);
+    flightTimeoutRef.current = setTimeout(onArrival, duration + 100);
   }, [stopTurntable, clearFlightTimeouts, updatePinHighlights, getDetailPadding, enable3DTerrain, showCircularMask, getCompensatedCenter, startTurntable]);
 
   const fitAllPoints = useCallback((animate = true) => {
@@ -1216,17 +1226,16 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     window.addEventListener('pointercancel', handlePointerUp);
 
     map.on('load', () => {
-      // 1. Immediately pre-load 3D DEM terrain in background so elevation mesh is pre-decoded and ready
+      // Preload 3D DEM terrain mesh immediately in background so all tiles and altitude
+      // data are already loaded, decoded, and cached into GPU memory.
+      // At pitch: 0 with hillshade hidden, the map remains visually 100% 2D in the hero section.
       try {
         map.setTerrain({ source: 'dem', exaggeration: 1.25 });
-        if (map.getLayer('hillshade')) {
-          map.setLayoutProperty('hillshade', 'visibility', 'none');
-        }
       } catch (err) {
-        console.warn('Initial terrain setup warning:', err);
+        console.warn('Preload terrain error:', err);
       }
 
-      // 2. Render Major Cities (India & Nepal)
+      // 1. Render Major Cities (India & Nepal)
       MAJOR_CITIES.forEach((city) => {
         const el = document.createElement('div');
         el.className = `city-marker ${city.isCapital ? 'is-capital' : ''} ${city.isBold ? 'is-bold' : ''}`.trim();
