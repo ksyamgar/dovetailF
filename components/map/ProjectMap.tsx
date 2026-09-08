@@ -892,7 +892,59 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       worker: false,
       cacheSize: 200
     });
-    demSource.setupMaplibre(maplibregl);
+
+    // Clone ArrayBuffers before transferring to MapLibre WebWorkers so cached buffers in
+    // demSource.contourCache and sharedDem are never detached, preventing DataCloneError.
+    const cloneTileBuffer = (data: any) => {
+      if (!data) return data;
+      if (data instanceof ArrayBuffer) {
+        return data.byteLength > 0 ? data.slice(0) : data;
+      }
+      if (ArrayBuffer.isView(data)) {
+        const view = data as ArrayBufferView;
+        return view.buffer.byteLength > 0
+          ? view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength)
+          : view.buffer;
+      }
+      return data;
+    };
+
+    try {
+      maplibregl.removeProtocol(demSource.sharedDemProtocolId);
+    } catch (_) {}
+    try {
+      maplibregl.removeProtocol(demSource.contourProtocolId);
+    } catch (_) {}
+
+    maplibregl.addProtocol(demSource.sharedDemProtocolId, (async (request: any, abortController: any): Promise<any> => {
+      const response: any = await demSource.sharedDemProtocol(request, abortController);
+      if (response && 'data' in response && response.data) {
+        return {
+          ...response,
+          data: cloneTileBuffer(response.data)
+        };
+      }
+      return response;
+    }) as any);
+
+    maplibregl.addProtocol(demSource.contourProtocolId, (async (request: any, abortController: any): Promise<any> => {
+      let response: any = await demSource.contourProtocol(request, abortController);
+      // If cached buffer was already detached prior to wrapping, clear contourCache and refresh
+      if (response && 'data' in response && response.data instanceof ArrayBuffer && response.data.byteLength === 0) {
+        try {
+          (demSource.manager as any)?.contourCache?.clear();
+        } catch (_) {}
+        response = await demSource.contourProtocol(request, abortController);
+      }
+      if (response && 'data' in response && response.data) {
+        return {
+          ...response,
+          data: cloneTileBuffer(response.data)
+        };
+      }
+      return response;
+    }) as any);
+
     demSourceRef.current = demSource;
 
     const initialBounds = getProjectsBounds(projects);
@@ -1319,6 +1371,12 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       cityMarkersRef.current.forEach(m => m.remove());
       clusterMarkersRef.current.forEach(m => m.remove());
       map.remove();
+      try {
+        maplibregl.removeProtocol(demSource.sharedDemProtocolId);
+      } catch (_) {}
+      try {
+        maplibregl.removeProtocol(demSource.contourProtocolId);
+      } catch (_) {}
       mapInstanceRef.current = null;
       demSourceRef.current = null;
     };
