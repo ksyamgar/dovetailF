@@ -773,7 +773,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
       encoding: 'terrarium',
       maxzoom: 12,
-      worker: true,
+      worker: false,
       cacheSize: 200
     });
     demSource.setupMaplibre(maplibregl);
