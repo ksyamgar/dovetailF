@@ -714,6 +714,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
     const map = mapInstanceRef.current;
     if (map) {
+      map.stop();
       disable3DTerrain(map);
       fitAllPoints(true);
     }
@@ -749,25 +750,23 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     closePanel();
   }, [clearFilter, closePanel, applyContourDensity]);
 
-  // Global "Esc" keyboard shortcut to close side panel and reset map to 2D overview
+  // Global "Esc" keyboard shortcut to close any open side panel or reset panned/zoomed map to default fit points
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
         // If full-screen image lightbox is active, allow lightbox to handle its own close first
-        if (document.querySelector('.project-slideshow')) {
+        if (document.querySelector('.kkaa-lightbox.is-open') || document.querySelector('.project-slideshow')) {
           return;
         }
 
-        if (isPanelOpen || activeItem != null || is3D) {
-          e.preventDefault();
-          resetMap();
-        }
+        e.preventDefault();
+        resetMap();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPanelOpen, activeItem, is3D, resetMap]);
+  }, [resetMap]);
 
   const handleZoomIn = useCallback(() => {
     mapInstanceRef.current?.zoomIn({ duration: 300 });
@@ -1514,7 +1513,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
           <button
             className="map-control-btn"
             id="map-recenter-btn"
-            title="Reset Map to Overview"
+            title="Reset Map to Default Fit Points (Esc)"
             onClick={resetMap}
           >
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
