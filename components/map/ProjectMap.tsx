@@ -290,23 +290,10 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }
   }, []);
 
-  // Trigonometric compensation: accounts for 3D mountain peak elevation at tilted pitch
-  // so the elevated site coordinate projects dead-center into the viewport and circular lens
-  const getCompensatedCenter = useCallback((lng: number, lat: number, elevM: number, pitchDeg: number, bearingDeg: number): [number, number] => {
-    const elev = elevM > 0 ? elevM : 1500;
-    const terrainExaggeration = 1.35;
-    const pitchRad = (pitchDeg * Math.PI) / 180;
-    const bearingRad = (bearingDeg * Math.PI) / 180;
-    const latRad = (lat * Math.PI) / 180;
-
-    const effectiveDist = elev * terrainExaggeration * Math.tan(pitchRad);
-    const metersPerDegLat = 111195;
-    const metersPerDegLng = 111195 * Math.cos(latRad);
-
-    const dLat = (effectiveDist * Math.cos(bearingRad)) / metersPerDegLat;
-    const dLng = (effectiveDist * Math.sin(bearingRad)) / metersPerDegLng;
-
-    return [lng + dLng, lat + dLat];
+  // In MapLibre GL v5, the camera center naturally targets the exact geographical coordinate [lng, lat].
+  // Artificial trigonometric offsets cause points to drift kilometers away when tilting or rotating.
+  const getCompensatedCenter = useCallback((lng: number, lat: number, _elevM?: number, _pitchDeg?: number, _bearingDeg?: number): [number, number] => {
+    return [lng, lat];
   }, []);
 
   // Continuous 360° cinematic turntable orbit locked directly around the focal point
