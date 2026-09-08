@@ -66,10 +66,8 @@ export const INITIAL_PROJECTS: Project[] = [
     heroImage: '/projects/kumar-residence/exterior1.webp',
     images: [
       '/projects/kumar-residence/exterior1.webp',
-      '/projects/kumar-residence/elevation.webp',
-      '/projects/kumar-residence/facade.webp',
-      '/projects/kumar-residence/terrace.webp',
-      '/projects/kumar-residence/landscape.webp'
+      '/projects/kumar-residence/whatsapp-image-2026-07-21-at-2.27.35-pm.webp',
+      '/projects/kumar-residence/whatsapp-image-2026-07-21-at-2.27.36-pm.webp'
     ],
     videoUrl: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Wooden_temple_of_Jaga_Mata_in_Khangteri_village_Shimla.webm',
     videoPoster: '/projects/kumar-residence/exterior1.webp',
@@ -228,10 +226,10 @@ export const INITIAL_PROJECTS: Project[] = [
     structure: 'Structural Pine Framing with Integrated Joinery & Double-Glazed Dormers',
     lead: 'A sensitive rooftop attic conversion transforming an underutilized colonial loft into a light-filled studio and library.',
     description: 'Situated beneath steeply pitched gables overlooking the Shimla hills, this attic intervention turns awkward low-headroom spaces into bespoke built-in daybeds, bookshelves, and reading alcoves.',
-    heroImage: '/projects/attic-pine-dale/attic-1.webp',
+    heroImage: '/projects/house-samloti/whatsapp-image-2026-07-21-at-1.26.21-pm.webp',
     images: [
-      '/projects/attic-pine-dale/attic-1.webp',
-      '/projects/attic-pine-dale/attic-2.webp'
+      '/projects/house-samloti/whatsapp-image-2026-07-21-at-1.26.21-pm.webp',
+      '/projects/house-samloti/whatsapp-image-2026-07-21-at-1.26.21-pm-(1).webp'
     ],
     featured: false,
     published: true,
@@ -313,10 +311,10 @@ export const INITIAL_PROJECTS: Project[] = [
     structure: 'Reinforced Masonry with Exposed Slate Cladding & Timber Cantilevers',
     lead: 'A modern family villa positioned along rolling tea bushes, framing direct vistas toward the snowcapped Dhauladhar peaks.',
     description: 'Designed as a dialogue between geometric clarity and agrarian landscape, the residence integrates shaded galleries, water collection reflection ponds, and deep eaves protecting against torrential monsoon rains.',
-    heroImage: '/projects/kumar-residence/facade.webp',
+    heroImage: '/projects/kumar-residence/exterior1.webp',
     images: [
-      '/projects/kumar-residence/facade.webp',
-      '/projects/kumar-residence/terrace.webp'
+      '/projects/kumar-residence/exterior1.webp',
+      '/projects/kumar-residence/whatsapp-image-2026-07-21-at-2.27.35-pm.webp'
     ],
     featured: false,
     published: true,
