@@ -335,7 +335,18 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     stopTurntable();
     autoRotateRef.current = true;
     turntableBearingRef.current = startBearing;
-    turntableTargetRef.current = { lng, lat, padding, pitch: targetPitch, zoom: targetZoom, elevation: elevM };
+
+    // Use exact, fixed elevation so the camera center never fluctuates frame-by-frame
+    const map = mapInstanceRef.current;
+    let stableElev = elevM;
+    if (map) {
+      const demElev = map.queryTerrainElevation([lng, lat]);
+      if (demElev != null && demElev > 0) {
+        stableElev = demElev / 1.25;
+      }
+    }
+
+    turntableTargetRef.current = { lng, lat, padding, pitch: targetPitch, zoom: targetZoom, elevation: stableElev };
 
     const startTime = performance.now();
     let lastTime = startTime;
@@ -349,26 +360,17 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       const deltaSec = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
-      // Silky acceleration ramp over the first 1.2s so the camera eases into orbit
+      // Silky acceleration ramp over the first 0.8s so the camera eases into orbit
       const elapsedOrbit = (now - startTime) / 1000;
-      const ramp = Math.min(elapsedOrbit / 1.2, 1);
+      const ramp = Math.min(elapsedOrbit / 0.8, 1);
       const currentSpeed = speedDegPerSec * (ramp * ramp * (3 - 2 * ramp));
 
       turntableBearingRef.current = (turntableBearingRef.current + currentSpeed * deltaSec) % 360;
 
-      // Continuously sample actual terrain elevation once DEM tiles finish streaming
-      const demElev = map.queryTerrainElevation([
-        turntableTargetRef.current.lng,
-        turntableTargetRef.current.lat
-      ]);
-      const currentElev = (demElev != null && demElev > 0)
-        ? demElev / 1.25
-        : turntableTargetRef.current.elevation;
-
       const compensatedCenter = getCompensatedCenter(
         turntableTargetRef.current.lng,
         turntableTargetRef.current.lat,
-        currentElev,
+        turntableTargetRef.current.elevation,
         turntableTargetRef.current.pitch,
         turntableBearingRef.current
       );
@@ -419,11 +421,10 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
   const disable3DTerrain = useCallback((map: MapLibreInstance) => {
     try {
-      map.setTerrain(null);
       if (map.getLayer('hillshade')) {
         map.setLayoutProperty('hillshade', 'visibility', 'none');
       }
-      // In 2D overview mode: restore contour lines
+      // In 2D overview mode: ensure contour lines are visible
       ['contour-minor', 'contour-major'].forEach(id => {
         if (map.getLayer(id)) {
           map.setLayoutProperty(id, 'visibility', 'visible');
@@ -499,7 +500,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }, 100);
   }, [applyContourDensity]);
 
-  // Update pin visual selection highlight and smoothly hide/show other 2D elements
+  // Update pin visual selection highlight and instantly hide/show other 2D elements
   const updatePinHighlights = useCallback((activeLng: number | null, activeLat: number | null) => {
     const isInspecting = activeLng != null && activeLat != null;
     const allMarkers = [...projectMarkersRef.current, ...officeMarkersRef.current];
@@ -511,46 +512,65 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         Math.abs(pos.lng - activeLng) < 0.0001 &&
         Math.abs(pos.lat - activeLat) < 0.0001;
 
-      el.style.transition = 'opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s ease';
-
       if (isMatch) {
         el.classList.add('is-highlighted');
+        el.style.display = '';
         el.style.opacity = '1';
         el.style.transform = 'scale(1)';
         el.style.pointerEvents = 'auto';
+        el.style.transition = 'transform 0.25s ease';
       } else if (isInspecting) {
-        // In 3D site focus: smoothly fade out all other pins so only the active project is showcased
+        // In 3D site focus: INSTANTLY hide all other pins so only the active project is showcased
         el.classList.remove('is-highlighted');
+        el.style.transition = 'none';
+        el.style.display = 'none';
         el.style.opacity = '0';
-        el.style.transform = 'scale(0.7)';
         el.style.pointerEvents = 'none';
       } else {
-        // Overview mode: smoothly restore all pins
+        // Overview mode: restore all pins
         el.classList.remove('is-highlighted');
+        el.style.display = '';
+        el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
         el.style.opacity = '1';
         el.style.transform = 'scale(1)';
         el.style.pointerEvents = 'auto';
       }
     });
 
-    // Smoothly fade city markers and regional cluster badges out when entering 3D inspection
+    // INSTANTLY hide city markers and regional cluster badges when entering 3D inspection
     cityMarkersRef.current.forEach(marker => {
       const el = marker.getElement();
-      el.style.transition = 'opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
-      el.style.opacity = isInspecting ? '0' : '1';
-      el.style.transform = isInspecting ? 'scale(0.7)' : 'scale(1)';
-      el.style.pointerEvents = isInspecting ? 'none' : 'auto';
+      if (isInspecting) {
+        el.style.transition = 'none';
+        el.style.display = 'none';
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+      } else {
+        el.style.display = '';
+        el.style.transition = 'opacity 0.3s ease';
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1)';
+        el.style.pointerEvents = 'auto';
+      }
     });
 
     clusterMarkersRef.current.forEach(marker => {
       const el = marker.getElement();
-      el.style.transition = 'opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
-      el.style.opacity = isInspecting ? '0' : '1';
-      el.style.transform = isInspecting ? 'scale(0.7)' : 'scale(1)';
-      el.style.pointerEvents = isInspecting ? 'none' : 'auto';
+      if (isInspecting) {
+        el.style.transition = 'none';
+        el.style.display = 'none';
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+      } else {
+        el.style.display = '';
+        el.style.transition = 'opacity 0.3s ease';
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1)';
+        el.style.pointerEvents = 'auto';
+      }
     });
 
-    // Fade 2D national boundary line during 3D inspection to maintain pristine terrain focus
+    // Instantly hide 2D national boundary line during 3D inspection to maintain pristine terrain focus
     const map = mapInstanceRef.current;
     if (map && map.getLayer('india_boundary_line')) {
       try {
@@ -559,7 +579,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }
   }, [showBoundary]);
 
-  // Cinematic Flying Drone Arc Path + 3D Terrain Activation + Turnaround Orbit
+  // Fast, Direct Flying Drone Arc Path + 3D Terrain + Instant Turntable
   const flyToLocation = useCallback((lng: number, lat: number, altStr?: string, targetZoom = 12.3) => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -569,6 +589,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
     setIs3D(true);
     activePointCoordRef.current = { lng, lat };
+    // INSTANTLY hide 2D elements
     updatePinHighlights(lng, lat);
 
     // Parse numeric altitude if available (e.g. "1,312 m" -> 1312)
@@ -585,8 +606,8 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     const padding = getDetailPadding();
     const finalPitch = 46;
     const finalBearing = map.getBearing() + 14;
-    // Luxurious, smooth duration for architectural drone trajectory
-    const duration = 2300;
+    // Fast, crisp cinematic drone flight
+    const duration = 1100;
 
     // Activate 3D terrain and lens mask
     enable3DTerrain(map);
@@ -594,7 +615,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
     const finalCenter = getCompensatedCenter(lng, lat, elevM, finalPitch, finalBearing);
 
-    // Silky, cinema-grade flight arc easing into the mountain valley
+    // Fast, smooth flight directly to target site
     map.flyTo({
       center: finalCenter,
       zoom: targetZoom,
@@ -602,9 +623,9 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       bearing: finalBearing,
       padding,
       duration,
-      curve: 1.42, // Smooth, natural parabolic arc
-      speed: 0.92, // Gentle cinematic pacing
-      easing: (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2), // Buttery cubic easeInOut
+      curve: 1.18,
+      speed: 1.35,
+      easing: (t: number) => 1 - Math.pow(1 - t, 3), // Smooth cubic easeOut
       essential: true
     });
 
@@ -617,14 +638,12 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         Math.abs(activePointCoordRef.current.lat - lat) > 0.0001) {
         return;
       }
-      // Gentle settle pause before starting the cinematic orbit
-      flightTimeoutRef.current = setTimeout(() => {
-        startTurntable(lng, lat, padding, finalPitch, targetZoom, elevM, finalBearing);
-      }, 350);
+      // Immediately start smooth turntable orbit with zero dead pause
+      startTurntable(lng, lat, padding, finalPitch, targetZoom, elevM, finalBearing);
     };
 
     map.once('moveend', onArrival);
-    flightTimeoutRef.current = setTimeout(onArrival, duration + 150);
+    flightTimeoutRef.current = setTimeout(onArrival, duration + 40);
   }, [stopTurntable, clearFlightTimeouts, updatePinHighlights, getDetailPadding, enable3DTerrain, showCircularMask, getCompensatedCenter, startTurntable]);
 
   const fitAllPoints = useCallback((animate = true) => {
@@ -1197,7 +1216,17 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     window.addEventListener('pointercancel', handlePointerUp);
 
     map.on('load', () => {
-      // 1. Render Major Cities (India & Nepal)
+      // 1. Immediately pre-load 3D DEM terrain in background so elevation mesh is pre-decoded and ready
+      try {
+        map.setTerrain({ source: 'dem', exaggeration: 1.25 });
+        if (map.getLayer('hillshade')) {
+          map.setLayoutProperty('hillshade', 'visibility', 'none');
+        }
+      } catch (err) {
+        console.warn('Initial terrain setup warning:', err);
+      }
+
+      // 2. Render Major Cities (India & Nepal)
       MAJOR_CITIES.forEach((city) => {
         const el = document.createElement('div');
         el.className = `city-marker ${city.isCapital ? 'is-capital' : ''} ${city.isBold ? 'is-bold' : ''}`.trim();
