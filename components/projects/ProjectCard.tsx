@@ -84,14 +84,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, viewMode = 'g
         <span className="card-year">{project.year}</span>
       </div>
       <div className="card-title-row">
-        <span
-          className="card-dot"
-          style={{ '--dot-color': project.color } as React.CSSProperties}
-          title={project.category}
-        ></span>
-        <h3 className="card-title">{project.name}</h3>
+        <div className="card-title-left">
+          <span
+            className="card-dot"
+            style={{ '--dot-color': project.color } as React.CSSProperties}
+            title={project.category}
+          ></span>
+          <h3 className="card-title">{project.name}</h3>
+        </div>
+        <div className="card-typology">{project.type}</div>
       </div>
-      <div className="card-typology">{project.type}</div>
       {viewMode === 'grid-big' && project.lead && (
         <p className="card-lead-excerpt">&ldquo;{project.lead}&rdquo;</p>
       )}

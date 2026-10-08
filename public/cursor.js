@@ -46,7 +46,7 @@
     });
 
     document.addEventListener('mouseleave', function() {
-      cursor.classList.remove('is-visible', 'is-hovering-link', 'is-hovering-pin', 'is-hovering-img');
+      cursor.classList.remove('is-visible', 'is-hovering-link', 'is-hovering-pin', 'is-hovering-img', 'is-on-dark');
       isVisible = false;
       lastHoverTarget = null;
     });
@@ -65,6 +65,17 @@
       if (!target || target === lastHoverTarget) return;
       lastHoverTarget = target;
 
+      // Dark surface detection: footer, dark CTA buttons, dark drawing thumb, dark cards
+      if (
+        target.closest(
+          'footer, .footer, #contact, .panel-cta-primary, .panel-drawing-thumb, .btn-dark, [data-theme="dark"], .bg-dark, .dark-surface'
+        )
+      ) {
+        cursor.classList.add('is-on-dark');
+      } else {
+        cursor.classList.remove('is-on-dark');
+      }
+
       if (target.closest('.map-pin, .map-cluster-pin, .city-marker')) {
         cursor.classList.add('is-hovering-pin');
         cursor.classList.remove('is-hovering-link', 'is-hovering-img');
@@ -73,7 +84,7 @@
 
       if (
         target.closest(
-          '.project-card-kkaa, .related-card, a, button, .legend-item, [role="button"], label, input, .map-control-toggle, .map-discipline, .filter-btn, .panel-close-btn'
+          '.project-card-kkaa, .related-card, a, button, .legend-item, [role="button"], label, input, .map-control-toggle, .filter-btn, .panel-close-btn'
         )
       ) {
         cursor.classList.add('is-hovering-link');

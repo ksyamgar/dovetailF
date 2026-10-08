@@ -35,7 +35,7 @@ export const CustomCursor: React.FC = () => {
     };
 
     const handleMouseLeave = () => {
-      cursor.classList.remove('is-visible', 'is-hovering-link', 'is-hovering-pin', 'is-hovering-img');
+      cursor.classList.remove('is-visible', 'is-hovering-link', 'is-hovering-pin', 'is-hovering-img', 'is-on-dark');
       isVisible = false;
       lastHoverTarget = null;
     };
@@ -54,6 +54,17 @@ export const CustomCursor: React.FC = () => {
       const target = pendingHoverTarget;
       if (!target || target === lastHoverTarget) return;
       lastHoverTarget = target;
+
+      // Dark surface detection: footer, dark CTA buttons, dark drawing thumb, dark cards
+      if (
+        target.closest(
+          'footer, .footer, #contact, .panel-cta-primary, .panel-drawing-thumb, .btn-dark, [data-theme="dark"], .bg-dark, .dark-surface'
+        )
+      ) {
+        cursor.classList.add('is-on-dark');
+      } else {
+        cursor.classList.remove('is-on-dark');
+      }
 
       // 1. Map pins & clusters
       if (target.closest('.map-pin, .map-cluster-pin, .city-marker')) {
@@ -76,7 +87,7 @@ export const CustomCursor: React.FC = () => {
       // 3. Project cards, links, buttons, toggles, controls, inputs, nav
       if (
         target.closest(
-          'a, button, .project-card-kkaa, .related-card, .legend-item, [role="button"], label, input, select, textarea, .map-control-toggle, .map-control-btn, .panel-close-btn, .nav-link, .filter-btn, .map-discipline, .panel-hero-actions, .cluster-badge-pill'
+          'a, button, .project-card-kkaa, .related-card, .legend-item, [role="button"], label, input, select, textarea, .map-control-toggle, .map-control-btn, .panel-close-btn, .nav-link, .filter-btn, .panel-hero-actions, .cluster-badge-pill'
         )
       ) {
         cursor.classList.add('is-hovering-link');

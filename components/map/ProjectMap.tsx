@@ -1658,21 +1658,13 @@ const ProjectMapComponent: React.FC<ProjectMapProps> = ({
       {/* Map Header */}
       <div className="map-header">
         <div className="map-header-tagline" aria-label="Practice disciplines: Architecture, Landscape, Interior, Conservation">
-          <span className="map-discipline" data-index="0">
-            <span className="discipline-word">Architecture</span>
-          </span>
+          <span>Architecture</span>
           <span className="discipline-sep" aria-hidden="true">·</span>
-          <span className="map-discipline" data-index="1">
-            <span className="discipline-word">Landscape</span>
-          </span>
+          <span>Landscape</span>
           <span className="discipline-sep" aria-hidden="true">·</span>
-          <span className="map-discipline" data-index="2">
-            <span className="discipline-word">Interior</span>
-          </span>
+          <span>Interior</span>
           <span className="discipline-sep" aria-hidden="true">·</span>
-          <span className="map-discipline" data-index="3">
-            <span className="discipline-word">Conservation</span>
-          </span>
+          <span>Conservation</span>
         </div>
       </div>
 
