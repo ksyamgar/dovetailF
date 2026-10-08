@@ -1,13 +1,110 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { INITIAL_PROJECTS } from '@/lib/data/projects';
 import { Project } from '@/types/project';
 
 export default function AdminPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isClient, setIsClient] = useState(false);
+
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
   const [activeTab, setActiveTab] = useState<'projects' | 'inquiries' | 'settings'>('projects');
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    setIsClient(true);
+    if (typeof window !== 'undefined') {
+      const auth = sessionStorage.getItem('dovetail_admin_auth');
+      if (auth === 'true') {
+        setIsAuthenticated(true);
+      }
+    }
+  }, []);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const u = usernameInput.trim().toLowerCase();
+    const p = passwordInput.trim();
+
+    if ((u === 'admin' || u === 'dovetail') && (p === 'admin' || p === 'dovetail2026' || p === 'admin123')) {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('dovetail_admin_auth', 'true');
+      setLoginError('');
+    } else {
+      setLoginError('Invalid ID or Password. Try ID: admin | Password: admin');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    sessionStorage.removeItem('dovetail_admin_auth');
+    setUsernameInput('');
+    setPasswordInput('');
+  };
+
+  if (!isClient) return null;
+
+  if (!isAuthenticated) {
+    return (
+      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 24px' }}>
+        <div style={{ width: '100%', maxWidth: '380px', padding: '40px', background: '#fff', border: '1px solid var(--line)', boxShadow: '0 8px 32px rgba(0,0,0,0.05)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <img src="/logo.png" alt="Dovetail Architecture" style={{ height: '36px', margin: '0 auto 16px', display: 'block' }} />
+            <span style={{ fontFamily: 'var(--mono)', fontSize: '9.5px', letterSpacing: '0.16em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+              Studio Content Management Portal
+            </span>
+          </div>
+
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontFamily: 'var(--mono)', fontSize: '11px' }}>
+            <div>
+              <label style={{ display: 'block', color: 'var(--muted)', marginBottom: '6px', fontSize: '9.5px', letterSpacing: '0.08em' }}>
+                ADMIN ID / USERNAME
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                placeholder="admin"
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)', background: '#faf9f6', outline: 'none', fontFamily: 'var(--mono)', fontSize: '12px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', color: 'var(--muted)', marginBottom: '6px', fontSize: '9.5px', letterSpacing: '0.08em' }}>
+                PASSWORD
+              </label>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="••••••••"
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--line)', background: '#faf9f6', outline: 'none', fontFamily: 'var(--mono)', fontSize: '12px', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {loginError && (
+              <p style={{ color: '#d32f2f', margin: '2px 0 0', fontSize: '10px', fontFamily: 'var(--mono)' }}>
+                {loginError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="hero-statement-cta"
+              style={{ width: '100%', justifyContent: 'center', padding: '12px', marginTop: '6px', cursor: 'pointer', boxSizing: 'border-box' }}
+            >
+              AUTHENTICATE & ENTER
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const togglePublish = (id: string) => {
     setProjects(prev =>
@@ -73,6 +170,20 @@ export default function AdminPage() {
             }}
           >
             SETTINGS
+          </button>
+          <button
+            onClick={handleLogout}
+            style={{
+              padding: '8px 16px',
+              fontFamily: 'var(--mono)',
+              fontSize: '11px',
+              border: '1px solid rgba(211, 47, 47, 0.4)',
+              backgroundColor: 'transparent',
+              color: '#d32f2f',
+              cursor: 'pointer'
+            }}
+          >
+            LOGOUT
           </button>
         </div>
       </header>

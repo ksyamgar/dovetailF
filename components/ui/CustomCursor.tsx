@@ -15,10 +15,13 @@ export const CustomCursor: React.FC = () => {
     if (!cursor) return;
 
     let isVisible = false;
+    let pendingHoverTarget: HTMLElement | null = null;
+    let hoverRafId: number | null = null;
+    let lastHoverTarget: HTMLElement | null = null;
 
+    // Direct hardware-accelerated transform update without layout thrashing
     const updatePosition = (e: MouseEvent) => {
-      cursor.style.left = `${e.clientX}px`;
-      cursor.style.top = `${e.clientY}px`;
+      cursor.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0) translate(-50%, -50%)`;
 
       if (!isVisible) {
         cursor.classList.add('is-visible');
@@ -34,6 +37,7 @@ export const CustomCursor: React.FC = () => {
     const handleMouseLeave = () => {
       cursor.classList.remove('is-visible', 'is-hovering-link', 'is-hovering-pin', 'is-hovering-img');
       isVisible = false;
+      lastHoverTarget = null;
     };
 
     const handleMouseDown = () => {
@@ -44,52 +48,36 @@ export const CustomCursor: React.FC = () => {
       cursor.classList.remove('is-clicking');
     };
 
-    // Hover states on interactive elements for subtle cursor feedback
-    const handleMouseOver = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
+    // Throttled hover detector: runs at most once per display frame and caches last element
+    const processHover = () => {
+      hoverRafId = null;
+      const target = pendingHoverTarget;
+      if (!target || target === lastHoverTarget) return;
+      lastHoverTarget = target;
 
-      // Map pins & clusters
-      if (target.closest('.map-pin') || target.closest('.map-cluster-pin')) {
+      // 1. Map pins & clusters
+      if (target.closest('.map-pin, .map-cluster-pin, .city-marker')) {
         cursor.classList.add('is-hovering-pin');
         cursor.classList.remove('is-hovering-link', 'is-hovering-img');
         return;
       }
 
-      // Photos / gallery items / drawings / thumbnails
+      // 2. Photos / gallery items / drawings / thumbnails
       if (
-        target.closest('.kkaa-photo-item') ||
-        target.closest('.kkaa-hero-image-wrap') ||
-        target.closest('.panel-photo-thumb') ||
-        target.closest('.panel-hero') ||
-        target.closest('.panel-drawing-thumb') ||
-        target.closest('.panel-drawings-band')
+        target.closest(
+          '.kkaa-photo-item, .kkaa-hero-image-wrap, .panel-photo-thumb, .panel-hero, .panel-drawing-thumb, .panel-drawings-band'
+        )
       ) {
         cursor.classList.add('is-hovering-img');
         cursor.classList.remove('is-hovering-pin', 'is-hovering-link');
         return;
       }
 
-      // Project cards, links, buttons, toggles, controls, inputs, nav
+      // 3. Project cards, links, buttons, toggles, controls, inputs, nav
       if (
-        target.closest('.project-card-kkaa') ||
-        target.closest('.related-card') ||
-        target.closest('a') ||
-        target.closest('button') ||
-        target.closest('.legend-item') ||
-        target.closest('[role="button"]') ||
-        target.closest('label') ||
-        target.closest('input') ||
-        target.closest('select') ||
-        target.closest('textarea') ||
-        target.closest('.map-control-toggle') ||
-        target.closest('.map-control-btn') ||
-        target.closest('.panel-close-btn') ||
-        target.closest('.nav-link') ||
-        target.closest('.filter-btn') ||
-        target.closest('.map-discipline') ||
-        target.closest('.panel-hero-actions') ||
-        target.closest('.cluster-core')
+        target.closest(
+          'a, button, .project-card-kkaa, .related-card, .legend-item, [role="button"], label, input, select, textarea, .map-control-toggle, .map-control-btn, .panel-close-btn, .nav-link, .filter-btn, .map-discipline, .panel-hero-actions, .cluster-badge-pill'
+        )
       ) {
         cursor.classList.add('is-hovering-link');
         cursor.classList.remove('is-hovering-pin', 'is-hovering-img');
@@ -100,14 +88,22 @@ export const CustomCursor: React.FC = () => {
       cursor.classList.remove('is-hovering-link', 'is-hovering-pin', 'is-hovering-img');
     };
 
+    const handleMouseOver = (e: MouseEvent) => {
+      pendingHoverTarget = e.target as HTMLElement | null;
+      if (!hoverRafId) {
+        hoverRafId = requestAnimationFrame(processHover);
+      }
+    };
+
     window.addEventListener('mousemove', updatePosition, { passive: true });
     window.addEventListener('mouseenter', handleMouseEnter);
     document.addEventListener('mouseleave', handleMouseLeave);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('mouseover', handleMouseOver);
+    document.addEventListener('mouseover', handleMouseOver, { passive: true });
 
     return () => {
+      if (hoverRafId) cancelAnimationFrame(hoverRafId);
       window.removeEventListener('mousemove', updatePosition);
       window.removeEventListener('mouseenter', handleMouseEnter);
       document.removeEventListener('mouseleave', handleMouseLeave);

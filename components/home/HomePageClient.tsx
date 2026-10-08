@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Project } from '@/types/project';
 import { testProjectFilterMatch } from '@/lib/data/projects';
 import { ProjectMap } from '@/components/map/ProjectMap';
@@ -46,36 +46,20 @@ const FILTER_GROUPS: FilterGroup[] = [
     ]
   },
   {
-    key: 'area',
-    label: 'AREA',
-    items: [
-      { key: 'mountain', label: 'MOUNTAIN (>1500m)' },
-      { key: 'valley', label: 'VALLEY' }
-    ]
-  },
-  {
     key: 'others',
     label: 'OTHERS',
     items: [
       { key: 'completed', label: 'COMPLETED' },
       { key: 'ongoing', label: 'ONGOING' }
     ]
-  },
-  {
-    key: 'size',
-    label: 'SIZE',
-    items: [
-      { key: 'size-100', label: '< 100 m²' },
-      { key: 'size-500', label: '< 500 m²' },
-      { key: 'size-1000', label: '< 1,000 m²' },
-      { key: 'size-2000', label: '< 2,000 m²' },
-      { key: 'size-gt-2000', label: '> 2,000 m²' }
-    ]
   }
 ];
 
 export const HomePageClient: React.FC<HomePageClientProps> = ({ projects }) => {
   const [mapLoaded, setMapLoaded] = useState(false);
+  const handleMapLoaded = useCallback(() => {
+    setMapLoaded(true);
+  }, []);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
@@ -160,38 +144,15 @@ export const HomePageClient: React.FC<HomePageClientProps> = ({ projects }) => {
       >
         <ProjectMap
           projects={projects}
-          onMapLoaded={() => setMapLoaded(true)}
-          activeFilter={activeFilter}
-          onFilterChange={setActiveFilter}
+          onMapLoaded={handleMapLoaded}
         />
       </section>
 
       {/* WORK / PROJECT GRID (KKAA STYLE) */}
       <section className="work-section" id="work">
         <div className="kkaa-section-title-wrap">
-          {/* Header Row: Left North Indicator Circle + Centered PROJECTS Title */}
+          {/* Header Row: Centered PROJECTS Title */}
           <div className="kkaa-title-row">
-            <div className="kkaa-title-north-icon" aria-hidden="true" title="True North">
-              <svg
-                width="28"
-                height="28"
-                viewBox="0 0 200 200"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="projects-north-icon"
-              >
-                <circle cx="100" cy="100" r="95" stroke="currentColor" strokeWidth="2.5" />
-                <line x1="100" y1="5" x2="100" y2="195" stroke="currentColor" strokeWidth="2.5" />
-                <polyline
-                  points="195 100 100 5 5 100"
-                  stroke="currentColor"
-                  strokeWidth="4.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="bevel"
-                />
-                <circle cx="100" cy="100" r="6" fill="currentColor" />
-              </svg>
-            </div>
             <h2 className="kkaa-section-title">PROJECTS</h2>
           </div>
 

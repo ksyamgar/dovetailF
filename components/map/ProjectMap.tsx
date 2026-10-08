@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl, { Map as MapLibreInstance, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import mlcontour from 'maplibre-contour';
@@ -9,22 +9,50 @@ import { OFFICES, MAJOR_CITIES, LEGEND_CATEGORIES, Office } from '@/lib/data/map
 import { testProjectFilterMatch } from '@/lib/data/projects';
 import Link from 'next/link';
 
+export type PlaceColorMode = 'grey' | 'black' | 'pink';
+
+export const PLACE_COLOR_CONFIG: Record<PlaceColorMode, { label: string; text: string; dot: string; capitalDot: string }> = {
+  grey: {
+    label: 'GREY',
+    text: '#555a64',
+    dot: '#555a64',
+    capitalDot: '#3a3e47'
+  },
+  black: {
+    label: 'BLACK',
+    text: '#11141a',
+    dot: '#222222',
+    capitalDot: '#000000'
+  },
+  pink: {
+    label: 'PINK',
+    text: '#B82458',
+    dot: '#B82458',
+    capitalDot: '#B82458'
+  }
+};
+
+// Place/City Names Default Architectural Color (Defaults to Grey #555a64 for design consistency)
+export const DEFAULT_PLACE_COLOR = PLACE_COLOR_CONFIG.grey.text;
+export const PINK_PLACE_COLOR = PLACE_COLOR_CONFIG.pink.text;
+export const BLACK_PLACE_COLOR = PLACE_COLOR_CONFIG.black.text;
+
 // Architectural Monochrome (Default B&W Mode)
-const BW_MINOR_LINE_COLOR: any = '#2d2d2a';
+const BW_MINOR_LINE_COLOR: any = '#3a3d44';
 const BW_MINOR_OPACITY: any = [
   'interpolate', ['linear'], ['zoom'],
-  4,  0.28,
-  7,  0.38,
-  10, 0.48,
-  13, 0.58
+  4,  0.25,
+  7,  0.34,
+  10, 0.44,
+  13, 0.54
 ];
-const BW_MAJOR_LINE_COLOR: any = '#111214';
+const BW_MAJOR_LINE_COLOR: any = '#181b20';
 const BW_MAJOR_OPACITY: any = [
   'interpolate', ['linear'], ['zoom'],
-  4,  0.50,
-  7,  0.62,
-  10, 0.75,
-  13, 0.88
+  4,  0.45,
+  7,  0.55,
+  10, 0.68,
+  13, 0.80
 ];
 
 // Elevation-Tiered Color Ramp (Opt-in Color Mode)
@@ -74,9 +102,9 @@ const COLOR_MAJOR_OPACITY: any = [
 ];
 
 // Contour Density Presets (Level 1: Sparse -> Level 2: Low Default -> Level 5: High)
-// Scaled specifically for Himalayan topography so contours never black-out and render in <15ms
+// Detailed, lightweight contouring scaled specifically for Himalayan topography
 const DENSITY_PRESETS: Record<number, Record<number, [number, number]>> = {
-  1: { // SPARSE - Maximum performance, ultra fast, airy spacing
+  1: { // SPARSE - Maximum performance, airy spacing
     4: [250, 1000],
     5: [200, 1000],
     6: [150, 750],
@@ -87,25 +115,13 @@ const DENSITY_PRESETS: Record<number, Record<number, [number, number]>> = {
     11: [30, 150],
     12: [20, 100],
     13: [15, 75],
-    14: [10, 50]
+    14: [10, 50],
+    15: [5, 25]
   },
-  2: { // LOW (DEFAULT) - Light, crisp architectural curves, fast load & smooth 3D
-    4: [150, 750],
-    5: [120, 600],
-    6: [100, 500],
-    7: [80, 400],
-    8: [60, 300],
-    9: [45, 225],
-    10: [35, 175],
-    11: [30, 150],
-    12: [25, 125],
-    13: [20, 100],
-    14: [15, 75]
-  },
-  3: { // MEDIUM - Balanced topographic survey
-    4: [100, 500],
-    5: [80, 400],
-    6: [60, 300],
+  2: { // BALANCED / DETAILED (DEFAULT) - Light, crisp architectural curves & rich 3D relief
+    4: [120, 600],
+    5: [90, 450],
+    6: [70, 350],
     7: [50, 250],
     8: [35, 175],
     9: [25, 125],
@@ -113,33 +129,53 @@ const DENSITY_PRESETS: Record<number, Record<number, [number, number]>> = {
     11: [15, 75],
     12: [10, 50],
     13: [6, 30],
-    14: [5, 25]
+    14: [4, 20],
+    15: [2.5, 12.5],
+    16: [1.5, 7.5]
+  },
+  3: { // MEDIUM - Topographic survey
+    4: [100, 500],
+    5: [80, 400],
+    6: [60, 300],
+    7: [40, 200],
+    8: [30, 150],
+    9: [20, 100],
+    10: [15, 75],
+    11: [8, 40],
+    12: [5, 25],
+    13: [3, 15],
+    14: [2, 10],
+    15: [1, 5]
   },
   4: { // DENSE - Rich topographic survey
     4: [60, 300],
     5: [50, 250],
     6: [35, 175],
-    7: [30, 150],
-    8: [20, 100],
-    9: [15, 75],
-    10: [12, 60],
-    11: [8, 40],
-    12: [6, 30],
-    13: [4, 20],
-    14: [3, 15]
+    7: [25, 125],
+    8: [18, 90],
+    9: [12, 60],
+    10: [10, 50],
+    11: [5, 25],
+    12: [3, 15],
+    13: [2, 10],
+    14: [1.2, 6],
+    15: [0.8, 4],
+    16: [0.5, 2.5]
   },
-  5: { // HIGH - Detailed alpine contouring
+  5: { // HIGH - Ultra-detailed alpine contouring
     4: [40, 200],
     5: [30, 150],
-    6: [25, 125],
-    7: [20, 100],
-    8: [15, 75],
-    9: [10, 50],
-    10: [8, 40],
-    11: [6, 30],
-    12: [4, 20],
-    13: [2.5, 10],
-    14: [2, 10]
+    6: [20, 100],
+    7: [15, 75],
+    8: [10, 50],
+    9: [8, 40],
+    10: [6, 30],
+    11: [4, 20],
+    12: [2.5, 12.5],
+    13: [1.5, 7.5],
+    14: [1, 5],
+    15: [0.6, 3],
+    16: [0.4, 2]
   }
 };
 
@@ -198,7 +234,7 @@ interface ProjectMapProps {
   onFilterChange?: (filter: string | null) => void;
 }
 
-export const ProjectMap: React.FC<ProjectMapProps> = ({
+const ProjectMapComponent: React.FC<ProjectMapProps> = ({
   projects,
   onMapLoaded,
   activeFilter: externalFilter,
@@ -212,19 +248,48 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
   const officeMarkersRef = useRef<Marker[]>([]);
   const cityMarkersRef = useRef<Marker[]>([]);
   const clusterMarkersRef = useRef<Marker[]>([]);
+  const headerNorthRef = useRef<HTMLDivElement>(null);
 
   const [activeItem, setActiveItem] = useState<{ type: 'project' | 'office'; data: Project | Office } | null>(null);
   const [currentMediaIdx, setCurrentMediaIdx] = useState<number>(0);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [is3D, setIs3D] = useState(false);
   const [showPlaces, setShowPlaces] = useState(true);
+  const [placeColorMode, setPlaceColorMode] = useState<PlaceColorMode>('grey'); // Default: 'grey' for architectural consistency
   const [showBoundary, setShowBoundary] = useState(true);
   const [showContourColors, setShowContourColors] = useState(false);
   const showContourColorsRef = useRef(false);
   const [densityLevel, setDensityLevel] = useState<number>(2); // Level 2 = LOW (Default)
+  const densityLevelRef = useRef<number>(2);
   const debouncedDensityRef = useRef<NodeJS.Timeout | null>(null);
   const [isControlsOpen, setIsControlsOpen] = useState(false);
-  const [elevation, setElevation] = useState<string>('ELEV — —');
+
+  // Dynamic portfolio statistics calculated from projects dataset
+  const practiceStats = useMemo(() => {
+    const total = projects.length;
+
+    // Active years span based on projects
+    const years = projects
+      .map((p) => parseInt(p.year || '0', 10))
+      .filter((y) => !isNaN(y) && y > 2000);
+    const minYear = years.length > 0 ? Math.min(...years) : 2017;
+    const currentYear = new Date().getFullYear();
+    const activeYears = Math.max(1, currentYear - minYear + 1);
+
+    // Dynamic distinct states / territories calculation (Himachal Pradesh, Ladakh, Uttarakhand, etc.)
+    const states = new Set(
+      projects.map((p) => {
+        if (p.state && p.state.trim()) return p.state.trim().toLowerCase();
+        const loc = (p.location || '').toLowerCase();
+        if (loc.includes('ladakh')) return 'ladakh';
+        if (loc.includes('h.p.') || loc.includes('himachal') || loc.includes('kangra') || loc.includes('palampur') || loc.includes('dharamshala') || loc.includes('shimla') || loc.includes('lahaul')) return 'himachal pradesh';
+        if (loc.includes('u.k.') || loc.includes('uttarakhand') || loc.includes('garhwal') || loc.includes('chamoli') || loc.includes('pauri')) return 'uttarakhand';
+        return (p.country || 'himachal pradesh').toLowerCase();
+      }).filter(Boolean)
+    ).size;
+
+    return { total, years: `${activeYears}+`, states };
+  }, [projects]);
 
   const [internalFilter, setInternalFilter] = useState<string | null>(null);
   const activeFilter = externalFilter !== undefined ? externalFilter : internalFilter;
@@ -238,6 +303,8 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
   const flightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activePointCoordRef = useRef<{ lng: number; lat: number } | null>(null);
   const isOrbitingRef = useRef<boolean>(false);
+  const isPanelHoveredRef = useRef<boolean>(false);
+  const lastUserInteractionTimeRef = useRef<number>(0);
   const closePanelRef = useRef<() => void>(() => {});
 
   const stopTurntable = useCallback(() => {
@@ -270,47 +337,11 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       : { top: 60, bottom: 60, left: 20, right: 20 };
   }, []);
 
-  // Circular Vignette Architectural Lens Mask
-  const showCircularMask = useCallback((targetLng?: number, targetLat?: number) => {
-    const mask = document.querySelector('#terrain-circular-mask') as HTMLElement | null;
-    const map = mapInstanceRef.current;
-    if (!mask || !map) return;
-    const canvas = map.getCanvas();
-    if (!canvas) return;
-
-    if (targetLng != null && targetLat != null) {
-      try {
-        const p = map.project([targetLng, targetLat]);
-        if (p && p.x >= 0 && p.y >= 0 && p.x <= canvas.clientWidth && p.y <= canvas.clientHeight) {
-          mask.style.setProperty('--mask-cx', `${((p.x / canvas.clientWidth) * 100).toFixed(2)}%`);
-          mask.style.setProperty('--mask-cy', `${((p.y / canvas.clientHeight) * 100).toFixed(2)}%`);
-          mask.classList.add('is-active');
-          return;
-        }
-      } catch (_) {}
-    }
-
-    const padding = getDetailPadding();
-    const cx = padding.left + (canvas.clientWidth - padding.left - padding.right) / 2;
-    const cy = padding.top + (canvas.clientHeight - padding.top - padding.bottom) / 2;
-
-    mask.style.setProperty('--mask-cx', `${((cx / canvas.clientWidth) * 100).toFixed(2)}%`);
-    mask.style.setProperty('--mask-cy', `${((cy / canvas.clientHeight) * 100).toFixed(2)}%`);
-    mask.classList.add('is-active');
-  }, [getDetailPadding]);
-
-  const hideCircularMask = useCallback(() => {
-    const mask = document.querySelector('#terrain-circular-mask');
-    if (mask) {
-      mask.classList.remove('is-active');
-    }
-  }, []);
+  // Circular Vignette Mask (Disabled - clean full-bleed 3D terrain)
+  const showCircularMask = useCallback((_targetLng?: number, _targetLat?: number) => {}, []);
+  const hideCircularMask = useCallback(() => {}, []);
 
   // Compensates for 3D terrain elevation under pitched perspective view.
-  // In MapLibre GL, an elevated point at altitude `elevM` tilted at `pitchDeg` projects upward
-  // along the line of sight. Shifting the camera's ground datum center along the viewing azimuth
-  // by (elev * tan(pitch)) ensures the elevated focal point remains dead-center in the camera
-  // viewport at any bearing angle throughout the 360° turntable.
   const getCompensatedCenter = useCallback((lng: number, lat: number, elevM = 1500, pitchDeg = 46, bearingDeg = 0): [number, number] => {
     if (pitchDeg <= 0) return [lng, lat];
     const elev = elevM > 0 ? elevM : 1500;
@@ -330,8 +361,8 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     return [lng + dLng, lat + dLat];
   }, []);
 
-  // Continuous 360° cinematic turntable orbit locked directly around the focal point
-  const startTurntable = useCallback((lng: number, lat: number, padding: { top: number; bottom: number; left: number; right: number }, targetPitch = 46, targetZoom = 12.3, elevM = 1500, startBearing = 0) => {
+  // Smooth cinematic turntable showcase orbit: throttled to 30fps, pauses on user interaction/hover to ensure zero lag
+  const startTurntable = useCallback((lng: number, lat: number, padding: { top: number; bottom: number; left: number; right: number }, targetPitch = 46, targetZoom = 13.8, elevM = 1500, startBearing = 0) => {
     stopTurntable();
     autoRotateRef.current = true;
     turntableBearingRef.current = startBearing;
@@ -339,67 +370,79 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
     const startTime = performance.now();
     let lastTime = startTime;
+    let lastRenderTime = 0;
     const speedDegPerSec = 7.2; // ~50s per 360° revolution
+    const maxOrbitDurationSec = 22; // Showcase tour rests gracefully after 22s to conserve GPU
 
     const orbitFrame = (now: number) => {
       const map = mapInstanceRef.current;
       if (!autoRotateRef.current || !map || !turntableTargetRef.current || isOrbitingRef.current) {
         return;
       }
+
+      // Check if showcase tour reached graceful rest
+      const elapsedOrbit = (now - startTime) / 1000;
+      if (elapsedOrbit > maxOrbitDurationSec) {
+        stopTurntable();
+        return;
+      }
+
+      // 1. If user is actively hovering over project panel (reading text/photos) or actively moving mouse, pause rendering
+      if (isPanelHoveredRef.current || (now - lastUserInteractionTimeRef.current < 300)) {
+        turntableRafRef.current = requestAnimationFrame(orbitFrame);
+        lastTime = now;
+        return;
+      }
+
+      // 2. Throttle camera updates to ~32ms (~30fps) to leave 70% frame budget open for compositor and mouse cursor
+      if (now - lastRenderTime < 32) {
+        turntableRafRef.current = requestAnimationFrame(orbitFrame);
+        return;
+      }
+      lastRenderTime = now;
+
       const deltaSec = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
       // Silky acceleration ramp over the first 1.2s so the camera eases into orbit
-      const elapsedOrbit = (now - startTime) / 1000;
       const ramp = Math.min(elapsedOrbit / 1.2, 1);
       const currentSpeed = speedDegPerSec * (ramp * ramp * (3 - 2 * ramp));
 
       turntableBearingRef.current = (turntableBearingRef.current + currentSpeed * deltaSec) % 360;
 
-      // Use the stable, fixed focal altitude so the camera never oscillates or bounces up and down
-      const compensatedCenter = getCompensatedCenter(
-        turntableTargetRef.current.lng,
-        turntableTargetRef.current.lat,
-        turntableTargetRef.current.elevation,
-        turntableTargetRef.current.pitch,
-        turntableBearingRef.current
-      );
-
-      const currentPadding = getDetailPadding();
-
+      // Camera centers and orbits using cached padding (zero DOM layout reflow)
       map.jumpTo({
-        center: compensatedCenter,
+        center: [turntableTargetRef.current.lng, turntableTargetRef.current.lat],
         bearing: turntableBearingRef.current,
         pitch: turntableTargetRef.current.pitch,
         zoom: turntableTargetRef.current.zoom,
-        padding: currentPadding
+        padding: turntableTargetRef.current.padding
       });
 
-      // Dynamically lock circular vignette lens directly onto the projected focal point
-      const mask = document.querySelector('#terrain-circular-mask') as HTMLElement | null;
-      const canvas = map.getCanvas();
-      if (mask && canvas) {
-        try {
-          const p = map.project([turntableTargetRef.current.lng, turntableTargetRef.current.lat]);
-          mask.style.setProperty('--mask-cx', `${((p.x / canvas.clientWidth) * 100).toFixed(2)}%`);
-          mask.style.setProperty('--mask-cy', `${((p.y / canvas.clientHeight) * 100).toFixed(2)}%`);
-        } catch (_) {}
+      // Synchronize True North indicator with current camera rotation & 3D perspective pitch
+      const rot = -turntableBearingRef.current;
+      const pitch = turntableTargetRef.current.pitch;
+      if (headerNorthRef.current) {
+        headerNorthRef.current.style.transform = `perspective(350px) rotateX(${pitch}deg) rotateZ(${rot}deg)`;
       }
 
       turntableRafRef.current = requestAnimationFrame(orbitFrame);
     };
 
     turntableRafRef.current = requestAnimationFrame(orbitFrame);
-  }, [stopTurntable, getCompensatedCenter, getDetailPadding]);
+  }, [stopTurntable]);
 
   const enable3DTerrain = useCallback((map: MapLibreInstance) => {
     try {
-      map.setTerrain({ source: 'dem', exaggeration: 1.25 });
+      // Only set terrain if not already active to avoid clearing GPU elevation mesh buffers
+      if (!map.getTerrain()) {
+        map.setTerrain({ source: 'dem', exaggeration: 1.25 });
+      }
       if (map.getLayer('hillshade')) {
         map.setLayoutProperty('hillshade', 'visibility', 'visible');
       }
-      // Ensure contour lines remain visible on 3D topography
-      ['contour-minor', 'contour-major'].forEach(id => {
+      // Ensure contour lines and elevation labels remain visible on 3D topography
+      ['contour-minor', 'contour-major', 'contour-labels'].forEach(id => {
         if (map.getLayer(id)) {
           map.setLayoutProperty(id, 'visibility', 'visible');
         }
@@ -415,8 +458,8 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       if (map.getLayer('hillshade')) {
         map.setLayoutProperty('hillshade', 'visibility', 'none');
       }
-      // Restore contour lines for 2D overview
-      ['contour-minor', 'contour-major'].forEach(id => {
+      // Restore contour lines and elevation labels for 2D overview
+      ['contour-minor', 'contour-major', 'contour-labels'].forEach(id => {
         if (map.getLayer(id)) {
           map.setLayoutProperty(id, 'visibility', 'visible');
         }
@@ -483,6 +526,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
   const handleDensityChange = useCallback((level: number) => {
     setDensityLevel(level);
+    densityLevelRef.current = level;
     if (debouncedDensityRef.current) {
       clearTimeout(debouncedDensityRef.current);
     }
@@ -491,7 +535,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     }, 100);
   }, [applyContourDensity]);
 
-  // Update pin visual selection highlight and instantly or smoothly hide/show other 2D elements
+  // Update pin visual selection highlight and show clicked point as prominent on top with other points at 70% opacity in 3D
   const updatePinHighlights = useCallback((activeLng: number | null, activeLat: number | null, instant = false) => {
     const isInspecting = activeLng != null && activeLat != null;
     const allMarkers = [...projectMarkersRef.current, ...officeMarkersRef.current];
@@ -506,35 +550,43 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       if (instant && isInspecting) {
         el.style.transition = 'none';
       } else {
-        el.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
+        el.style.transition = 'opacity 0.35s ease';
       }
 
       if (isMatch) {
         el.classList.add('is-highlighted');
+        el.classList.remove('is-inspecting-other');
+        el.classList.remove('is-dimmed');
         el.style.display = '';
         el.style.opacity = '1';
-        el.style.transform = 'scale(1)';
+        el.style.zIndex = '1000';
         el.style.pointerEvents = 'auto';
-        // Hide hover label tooltip during 3D inspection so it never blocks the 3D model
+        // Hide hover label tooltip during 3D inspection so it never blocks the 3D terrain
         const label = el.querySelector('.map-pin-label');
         if (label) {
           (label as HTMLElement).style.display = 'none';
         }
       } else if (isInspecting) {
-        // In 3D site focus: instantly hide all other pins so only the active project is showcased
+        // In 3D site focus: keep other points clearly visible with 88% opacity, on lower z-index and fully clickable
         el.classList.remove('is-highlighted');
-        el.style.opacity = '0';
-        el.style.transform = 'scale(0.5)';
-        el.style.pointerEvents = 'none';
-        if (instant) {
-          el.style.display = 'none';
+        el.classList.add('is-inspecting-other');
+        el.classList.remove('is-dimmed');
+        el.style.display = '';
+        el.style.opacity = '0.88';
+        el.style.zIndex = '20';
+        el.style.pointerEvents = 'auto';
+        const label = el.querySelector('.map-pin-label');
+        if (label) {
+          (label as HTMLElement).style.display = '';
         }
       } else {
-        // Overview mode: restore all pins
+        // Overview mode: restore all pins to default state
         el.classList.remove('is-highlighted');
+        el.classList.remove('is-inspecting-other');
+        el.classList.remove('is-dimmed');
         el.style.display = '';
-        el.style.opacity = '1';
-        el.style.transform = 'scale(1)';
+        el.style.opacity = '';
+        el.style.zIndex = '';
         el.style.pointerEvents = 'auto';
         const label = el.querySelector('.map-pin-label');
         if (label) {
@@ -543,52 +595,32 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       }
     });
 
-    // Instantly hide city markers and regional cluster badges on 3D inspection
+    // Hide city markers during 3D site focus to save 50+ DOM transforms; restore in 2D overview
     cityMarkersRef.current.forEach(marker => {
       const el = marker.getElement();
-      if (instant && isInspecting) {
-        el.style.transition = 'none';
-        el.style.display = 'none';
-        el.style.opacity = '0';
-      } else if (isInspecting) {
-        el.style.transition = 'opacity 0.25s ease';
-        el.style.opacity = '0';
-      } else {
-        el.style.transition = 'opacity 0.35s ease';
-        el.style.display = '';
-        el.style.opacity = '1';
-      }
+      el.style.display = isInspecting ? 'none' : '';
+      el.style.opacity = isInspecting ? '0' : '1';
       el.style.pointerEvents = isInspecting ? 'none' : 'auto';
     });
 
     clusterMarkersRef.current.forEach(marker => {
       const el = marker.getElement();
-      if (instant && isInspecting) {
-        el.style.transition = 'none';
-        el.style.display = 'none';
-        el.style.opacity = '0';
-      } else if (isInspecting) {
-        el.style.transition = 'opacity 0.25s ease';
-        el.style.opacity = '0';
-      } else {
-        el.style.transition = 'opacity 0.35s ease';
-        el.style.display = '';
-        el.style.opacity = '1';
-      }
+      el.style.display = isInspecting ? 'none' : '';
+      el.style.opacity = isInspecting ? '0' : '1';
       el.style.pointerEvents = isInspecting ? 'none' : 'auto';
     });
 
-    // Instantly hide 2D national boundary line during 3D inspection
+    // Instantly hide 2D national boundary line during 3D inspection using GPU-accelerated paint property (zero relayout)
     const map = mapInstanceRef.current;
     if (map && map.getLayer('india_boundary_line')) {
       try {
-        map.setLayoutProperty('india_boundary_line', 'visibility', isInspecting ? 'none' : (showBoundary ? 'visible' : 'none'));
+        map.setPaintProperty('india_boundary_line', 'line-opacity', isInspecting ? 0 : (showBoundary ? 0.75 : 0));
       } catch (_) {}
     }
   }, [showBoundary]);
 
-  // Fast, crisp cinematic drone flight + 3D Terrain Activation + Turnaround Orbit
-  const flyToLocation = useCallback((lng: number, lat: number, altStr?: string, targetZoom = 12.3) => {
+  // Silky smooth cinematic drone flight (2.2s) + 3D Terrain Activation + Turntable Orbit
+  const flyToLocation = useCallback((lng: number, lat: number, altStr?: string, targetZoom = 13.8) => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
@@ -598,42 +630,35 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     setIs3D(true);
     activePointCoordRef.current = { lng, lat };
 
-    // Instantly hide 2D pins, clusters, labels, and boundary lines on the very frame of the click
-    updatePinHighlights(lng, lat, true);
+    // Update pins without layout thrashing
+    updatePinHighlights(lng, lat, false);
 
-    // Query elevation from already-preloaded DEM terrain (with fallback to project metadata)
-    let elevM = 1500;
-    if (altStr) {
-      const num = parseInt(altStr.replace(/[^0-9]/g, ''), 10);
-      if (!isNaN(num) && num > 0) elevM = num;
+    // Keep contour detail clean without purging tile cache if already loaded
+    if (densityLevelRef.current !== 2) {
+      densityLevelRef.current = 2;
+      applyContourDensity(2);
+      setDensityLevel(2);
     }
-    const demElev = map.queryTerrainElevation([lng, lat]);
-    if (demElev != null && demElev > 0) {
-      elevM = demElev / 1.25;
-    }
+
+    // Activate 3D terrain without re-initialization overhead
+    enable3DTerrain(map);
 
     const padding = getDetailPadding();
     const finalPitch = 46;
     const finalBearing = map.getBearing() + 14;
-    // Brisk, cinematic drone flight (1200ms) with zero lagging or oscillating
-    const duration = 1200;
-
-    // Activate 3D hillshading and circular lens mask
-    enable3DTerrain(map);
-    showCircularMask(lng, lat);
-
-    const finalCenter = getCompensatedCenter(lng, lat, elevM, finalPitch, finalBearing);
+    // Silky, cinematic 2.2s drone flight with zero stutter
+    const duration = 2200;
 
     map.flyTo({
-      center: finalCenter,
+      center: [lng, lat],
       zoom: targetZoom,
       pitch: finalPitch,
       bearing: finalBearing,
       padding,
       duration,
-      curve: 1.15, // Direct, clean trajectory
-      speed: 1.25,
-      easing: (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t), // Crisp easeInOut
+      curve: 1.42, // Optimal Van Wijk & Nuij smooth geodesic trajectory
+      speed: 1.1,
+      easing: (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
       essential: true
     });
 
@@ -646,15 +671,15 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         Math.abs(activePointCoordRef.current.lat - lat) > 0.0001) {
         return;
       }
-      // Start turntable seamlessly with stable, locked altitude
+      // Start turntable seamlessly once the flight smoothly glides to a stop
       flightTimeoutRef.current = setTimeout(() => {
-        startTurntable(lng, lat, padding, finalPitch, targetZoom, elevM, finalBearing);
-      }, 100);
+        startTurntable(lng, lat, padding, finalPitch, targetZoom, 1500, finalBearing);
+      }, 250);
     };
 
     map.once('moveend', onArrival);
-    flightTimeoutRef.current = setTimeout(onArrival, duration + 100);
-  }, [stopTurntable, clearFlightTimeouts, updatePinHighlights, getDetailPadding, enable3DTerrain, showCircularMask, getCompensatedCenter, startTurntable]);
+    flightTimeoutRef.current = setTimeout(onArrival, duration + 600);
+  }, [stopTurntable, clearFlightTimeouts, updatePinHighlights, getDetailPadding, enable3DTerrain, startTurntable, applyContourDensity]);
 
   const fitAllPoints = useCallback((animate = true) => {
     const map = mapInstanceRef.current;
@@ -712,13 +737,21 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     setIs3D(false);
     setIsControlsOpen(false);
 
+    // Restore balanced overview contour density
+    applyContourDensity(2);
+    setDensityLevel(2);
+
+    if (headerNorthRef.current) {
+      headerNorthRef.current.style.transform = 'perspective(350px) rotateX(0deg) rotateZ(0deg)';
+    }
+
     const map = mapInstanceRef.current;
     if (map) {
       map.stop();
       disable3DTerrain(map);
       fitAllPoints(true);
     }
-  }, [stopTurntable, clearFlightTimeouts, hideCircularMask, updatePinHighlights, disable3DTerrain, fitAllPoints]);
+  }, [stopTurntable, clearFlightTimeouts, hideCircularMask, updatePinHighlights, disable3DTerrain, fitAllPoints, applyContourDensity]);
 
   closePanelRef.current = closePanel;
 
@@ -726,14 +759,38 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     setCurrentMediaIdx(0);
     setActiveItem({ type: 'project', data: project });
     setIsPanelOpen(true);
-    flyToLocation(project.lng, project.lat, project.alt, 12.3);
+    flyToLocation(project.lng, project.lat, project.alt, 13.8);
   }, [flyToLocation]);
 
   const selectOffice = useCallback((office: Office) => {
     setActiveItem({ type: 'office', data: office });
     setIsPanelOpen(true);
-    flyToLocation(office.lng, office.lat, office.alt, 12.6);
+    flyToLocation(office.lng, office.lat, office.alt, 14.0);
   }, [flyToLocation]);
+
+  const selectProjectRef = useRef(selectProject);
+  selectProjectRef.current = selectProject;
+
+  const selectOfficeRef = useRef(selectOffice);
+  selectOfficeRef.current = selectOffice;
+
+  const onMapLoadedRef = useRef(onMapLoaded);
+  onMapLoadedRef.current = onMapLoaded;
+
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+
+  const handleResetBearing = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    stopTurntable();
+    clearFlightTimeouts();
+    map.easeTo({
+      bearing: 0,
+      duration: 650,
+      essential: true
+    });
+  }, [stopTurntable, clearFlightTimeouts]);
 
   const clearFilter = useCallback(() => {
     if (onFilterChange) {
@@ -807,18 +864,177 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     });
   }, []);
 
+  const cyclePlaceColorMode = useCallback(() => {
+    setPlaceColorMode((prev) => {
+      if (prev === 'grey') return 'black';
+      if (prev === 'black') return 'pink';
+      return 'grey';
+    });
+  }, []);
+
   const toggleBoundaryVisibility = useCallback((show: boolean) => {
     setShowBoundary(show);
     const map = mapInstanceRef.current;
     if (!map) return;
     try {
       if (map.getLayer('india_boundary_line')) {
-        map.setLayoutProperty('india_boundary_line', 'visibility', show ? 'visible' : 'none');
+        map.setPaintProperty('india_boundary_line', 'line-opacity', show ? 0.75 : 0);
       }
     } catch (err) {
       console.warn('toggleBoundaryVisibility error:', err);
     }
   }, []);
+
+  const applyFilterToMap = useCallback((filter: string | null) => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // 1. Update individual project pins
+    projectMarkersRef.current.forEach((marker) => {
+      const proj = (marker as any)._project as Project | undefined;
+      const el = marker.getElement();
+      if (!proj || !el) return;
+
+      const isMatch = testProjectFilterMatch(proj, filter);
+
+      if (!filter) {
+        el.classList.remove('is-dimmed');
+        el.classList.remove('is-highlighted');
+        el.style.opacity = '';
+        el.style.filter = '';
+        el.style.pointerEvents = 'auto';
+        el.style.zIndex = '';
+      } else if (isMatch) {
+        el.classList.remove('is-dimmed');
+        el.classList.add('is-highlighted');
+        el.style.opacity = '1';
+        el.style.filter = 'none';
+        el.style.pointerEvents = 'auto';
+        el.style.zIndex = '1000';
+      } else {
+        el.classList.add('is-dimmed');
+        el.classList.remove('is-highlighted');
+        el.style.opacity = '0.38';
+        el.style.filter = 'grayscale(0.65)';
+        el.style.pointerEvents = 'auto';
+        el.style.zIndex = '5';
+      }
+    });
+
+    // 2. Update Kangra regional cluster marker
+    clusterMarkersRef.current.forEach((clusterMarker) => {
+      const kangraList = (clusterMarker as any)._kangraProjects as Project[] | undefined;
+      const kangraIds = (clusterMarker as any)._kangraProjectIds as Set<string> | undefined;
+      const el = clusterMarker.getElement();
+      if (!kangraList || !el) return;
+
+      const matchingInCluster = kangraList.filter(p => testProjectFilterMatch(p, filter));
+      const countEl = el.querySelector('.cluster-num');
+      if (countEl) {
+        countEl.textContent = String(filter ? matchingInCluster.length : kangraList.length);
+      }
+
+      const showClusterByZoom = map.getZoom() < 9.5;
+
+      if (!filter) {
+        el.classList.remove('is-dimmed');
+        el.classList.remove('is-highlighted');
+        el.style.opacity = '1';
+        el.style.filter = '';
+        el.style.pointerEvents = 'auto';
+        el.style.display = showClusterByZoom ? 'flex' : 'none';
+
+        // Restore normal zoom-dependent visibility for Kangra pins
+        projectMarkersRef.current.forEach(m => {
+          const projId = (m as any)._project?.id;
+          if (kangraIds && kangraIds.has(projId)) {
+            m.getElement().style.display = showClusterByZoom ? 'none' : 'block';
+          }
+        });
+      } else if (matchingInCluster.length > 0) {
+        el.classList.remove('is-dimmed');
+        el.classList.add('is-highlighted');
+        el.style.opacity = '1';
+        el.style.filter = 'none';
+        el.style.pointerEvents = 'auto';
+
+        // If only 1-2 projects in Kangra match the active filter, uncluster and reveal their pins directly
+        if (matchingInCluster.length <= 2) {
+          el.style.display = 'none';
+          const matchIdSet = new Set(matchingInCluster.map(p => p.id));
+          projectMarkersRef.current.forEach(m => {
+            const projId = (m as any)._project?.id;
+            if (kangraIds && kangraIds.has(projId)) {
+              if (matchIdSet.has(projId)) {
+                m.getElement().style.display = 'block';
+                m.getElement().style.opacity = '1';
+              } else {
+                m.getElement().style.display = 'none';
+              }
+            }
+          });
+        } else {
+          el.style.display = showClusterByZoom ? 'flex' : 'none';
+        }
+      } else {
+        el.classList.add('is-dimmed');
+        el.classList.remove('is-highlighted');
+        el.style.opacity = '0.08';
+        el.style.filter = 'grayscale(0.9)';
+        el.style.pointerEvents = 'none';
+      }
+    });
+
+    // 3. Office marker subtle dimming when typology filter is active
+    officeMarkersRef.current.forEach(m => {
+      const el = m.getElement();
+      if (!filter) {
+        el.classList.remove('is-dimmed');
+        el.style.opacity = '1';
+      } else {
+        el.classList.add('is-dimmed');
+        el.style.opacity = '0.25';
+      }
+    });
+
+    // 4. Smoothly adjust camera bounds to encompass matching projects
+    if (filter) {
+      const matching = projects.filter(p => testProjectFilterMatch(p, filter));
+      if (matching.length > 0) {
+        const pts = matching.map(p => ({ lng: p.lng, lat: p.lat }));
+        let minLng = pts[0].lng;
+        let maxLng = pts[0].lng;
+        let minLat = pts[0].lat;
+        let maxLat = pts[0].lat;
+        for (let i = 1; i < pts.length; i++) {
+          if (pts[i].lng < minLng) minLng = pts[i].lng;
+          if (pts[i].lng > maxLng) maxLng = pts[i].lng;
+          if (pts[i].lat < minLat) minLat = pts[i].lat;
+          if (pts[i].lat > maxLat) maxLat = pts[i].lat;
+        }
+
+        const dLng = Math.max(0.12, (maxLng - minLng) * 0.35);
+        const dLat = Math.max(0.12, (maxLat - minLat) * 0.35);
+
+        const bounds: [[number, number], [number, number]] = [
+          [minLng - dLng, minLat - dLat],
+          [maxLng + dLng, maxLat + dLat]
+        ];
+
+        const isDesktop = map.getCanvas().clientWidth > 860;
+        map.fitBounds(bounds, {
+          padding: isDesktop
+            ? { top: 90, bottom: 90, left: 100, right: 100 }
+            : { top: 70, bottom: 70, left: 30, right: 30 },
+          maxZoom: matching.length === 1 ? 11.5 : 9.5,
+          duration: 1100
+        });
+      }
+    } else if (prevFilterRef.current) {
+      fitAllPoints(true);
+    }
+    prevFilterRef.current = filter || null;
+  }, [projects, fitAllPoints]);
 
   const handleFilterClick = useCallback((categoryKey: string) => {
     const next = activeFilter === categoryKey ? null : categoryKey;
@@ -827,88 +1043,13 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     } else {
       setInternalFilter(next);
     }
-  }, [activeFilter, onFilterChange]);
+    applyFilterToMap(next);
+  }, [activeFilter, onFilterChange, applyFilterToMap]);
 
-  // Update pin filter dimming, highlighting, and camera positioning across all markers
+  // Update pin filter dimming, highlighting, and camera positioning whenever activeFilter changes
   useEffect(() => {
-    const map = mapInstanceRef.current;
-
-    // 1. Update individual project pins
-    projectMarkersRef.current.forEach((marker) => {
-      const proj = (marker as any)._project as Project | undefined;
-      const el = marker.getElement();
-      if (!proj) return;
-
-      const isMatch = testProjectFilterMatch(proj, activeFilter);
-
-      if (!activeFilter || isMatch) {
-        el.classList.remove('is-dimmed');
-        if (activeFilter) {
-          el.classList.add('is-highlighted');
-        } else {
-          el.classList.remove('is-highlighted');
-        }
-        el.style.opacity = '1';
-        el.style.pointerEvents = 'auto';
-      } else {
-        el.classList.add('is-dimmed');
-        el.classList.remove('is-highlighted');
-        el.style.opacity = '0.12';
-        el.style.pointerEvents = 'none';
-      }
-    });
-
-    // 2. Update Kangra regional cluster marker
-    clusterMarkersRef.current.forEach((clusterMarker) => {
-      const kangraList = (clusterMarker as any)._kangraProjects as Project[] | undefined;
-      const el = clusterMarker.getElement();
-      if (!kangraList) return;
-
-      const matchingInCluster = kangraList.filter(p => testProjectFilterMatch(p, activeFilter));
-      const countEl = el.querySelector('.cluster-num');
-      if (countEl) {
-        countEl.textContent = String(activeFilter ? matchingInCluster.length : kangraList.length);
-      }
-
-      if (!activeFilter || matchingInCluster.length > 0) {
-        el.classList.remove('is-dimmed');
-        if (activeFilter) {
-          el.classList.add('is-highlighted');
-        } else {
-          el.classList.remove('is-highlighted');
-        }
-        el.style.opacity = '1';
-        el.style.pointerEvents = 'auto';
-      } else {
-        el.classList.add('is-dimmed');
-        el.classList.remove('is-highlighted');
-        el.style.opacity = '0.12';
-        el.style.pointerEvents = 'none';
-      }
-    });
-
-    // 3. Smoothly adjust camera bounds to encompass matching projects
-    if (map) {
-      if (activeFilter) {
-        const matching = projects.filter(p => testProjectFilterMatch(p, activeFilter));
-        if (matching.length > 0) {
-          const bounds = getProjectsBounds(matching);
-          const isDesktop = map.getCanvas().clientWidth > 860;
-          map.fitBounds(bounds, {
-            padding: isDesktop
-              ? { top: 90, bottom: 90, left: 100, right: 100 }
-              : { top: 70, bottom: 70, left: 30, right: 30 },
-            maxZoom: matching.length === 1 ? 12.5 : 9.8,
-            duration: 1200
-          });
-        }
-      } else if (prevFilterRef.current) {
-        // Returned to all projects after active filter
-        fitAllPoints(true);
-      }
-    }
-    prevFilterRef.current = activeFilter || null;
-  }, [activeFilter, projects, fitAllPoints]);
+    applyFilterToMap(activeFilter);
+  }, [activeFilter, applyFilterToMap]);
 
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
@@ -1033,15 +1174,15 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
               visibility: 'none'
             },
             paint: {
-              'hillshade-shadow-color': '#52524c',
+              'hillshade-shadow-color': '#484840',
               'hillshade-highlight-color': '#ffffff',
-              'hillshade-accent-color': '#82827a',
-              'hillshade-exaggeration': 0.72,
+              'hillshade-accent-color': '#707068',
+              'hillshade-exaggeration': 0.65,
               'hillshade-illumination-direction': 315,
               'hillshade-illumination-anchor': 'map'
             }
           },
-          // 3. Minor contour lines — ALWAYS ON in 2D (zoom 4.5+), default architectural B&W graphite
+          // 3. Minor contour lines — ALWAYS ON in 2D (zoom 4.5+), default lightweight architectural B&W graphite
           {
             id: 'contour-minor',
             type: 'line',
@@ -1060,16 +1201,16 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
               'line-color': BW_MINOR_LINE_COLOR,
               'line-width': [
                 'interpolate', ['linear'], ['zoom'],
-                4.5, 0.45,
-                7,   0.6,
-                9,   0.8,
-                11,  1.0,
-                14,  1.3
+                4.5, 0.32,
+                7,   0.42,
+                9,   0.55,
+                11,  0.68,
+                14,  0.85
               ],
               'line-opacity': BW_MINOR_OPACITY
             }
           },
-          // 4. Major index contours — ALWAYS ON in 2D (zoom 4+), default bold carbon black
+          // 4. Major index contours — ALWAYS ON in 2D (zoom 4+), lightweight graphite index curves
           {
             id: 'contour-major',
             type: 'line',
@@ -1088,17 +1229,62 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
               'line-color': BW_MAJOR_LINE_COLOR,
               'line-width': [
                 'interpolate', ['linear'], ['zoom'],
-                4,  0.75,
-                6,  1.0,
-                8,  1.3,
-                10, 1.7,
-                12, 2.1,
-                14, 2.5
+                4,  0.55,
+                6,  0.72,
+                8,  0.92,
+                10, 1.15,
+                12, 1.35,
+                14, 1.65
               ],
               'line-opacity': BW_MAJOR_OPACITY
             }
           },
-          // 5. Official India National Boundary (scales wider as zoom increases for instant clarity)
+          // 5. Contour Elevation Number Details — Clean, uncluttered altitude numbers only along major index contours
+          {
+            id: 'contour-labels',
+            type: 'symbol',
+            source: 'contours',
+            'source-layer': 'contours',
+            filter: ['>', ['get', 'level'], 0], // Only show altitude numbers on major index contours
+            minzoom: 8.0,
+            layout: {
+              'symbol-placement': 'line',
+              'text-field': ['concat', ['to-string', ['get', 'ele']], 'm'],
+              'text-size': [
+                'interpolate', ['linear'], ['zoom'],
+                8.0,  8.0,
+                10.5, 9.0,
+                12.0, 10.0,
+                13.5, 11.0,
+                15.0, 12.0
+              ],
+              'text-font': ['Noto Sans Regular', 'Open Sans Regular'],
+              'text-letter-spacing': 0.08,
+              'text-max-angle': 35,
+              'symbol-spacing': [
+                'interpolate', ['linear'], ['zoom'],
+                8.0,  360,
+                11.0, 280,
+                13.5, 240
+              ],
+              'text-allow-overlap': false,
+              'text-ignore-placement': false,
+              visibility: 'visible'
+            },
+            paint: {
+              'text-color': '#11141a',
+              'text-halo-color': '#ffffff',
+              'text-halo-width': 2.2,
+              'text-opacity': [
+                'interpolate', ['linear'], ['zoom'],
+                8.0,  0.65,
+                10.0, 0.85,
+                12.0, 0.95,
+                13.5, 1.0
+              ]
+            }
+          },
+          // 6. Official India National Boundary (scales wider as zoom increases for instant clarity)
           {
             id: 'india_boundary_line',
             type: 'line',
@@ -1148,35 +1334,6 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
     mapInstanceRef.current = map;
 
-    map.on('mousemove', (e) => {
-      try {
-        const elev = map.queryTerrainElevation(e.lngLat);
-        if (elev != null) {
-          setElevation(`ELEV ${Math.round(elev).toLocaleString()} M`);
-        } else {
-          setElevation('ELEV — —');
-        }
-      } catch (_) {
-        setElevation('ELEV — —');
-      }
-    });
-
-    map.on('render', () => {
-      if (activePointCoordRef.current) {
-        const mask = document.querySelector('#terrain-circular-mask') as HTMLElement | null;
-        if (mask && mask.classList.contains('is-active')) {
-          try {
-            const p = map.project([activePointCoordRef.current.lng, activePointCoordRef.current.lat]);
-            const c = map.getCanvas();
-            if (p && c && p.x >= 0 && p.x <= c.clientWidth && p.y >= 0 && p.y <= c.clientHeight) {
-              mask.style.setProperty('--mask-cx', `${((p.x / c.clientWidth) * 100).toFixed(2)}%`);
-              mask.style.setProperty('--mask-cy', `${((p.y / c.clientHeight) * 100).toFixed(2)}%`);
-            }
-          } catch (_) {}
-        }
-      }
-    });
-
     map.on('click', (e) => {
       const target = e.originalEvent?.target as HTMLElement | null;
       if (target && (target.closest('.map-pin') || target.closest('.map-cluster-pin') || target.closest('#project-panel') || target.closest('.map-view-controls') || target.closest('.map-zoom-controls'))) {
@@ -1206,6 +1363,25 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
     };
 
     window.addEventListener('click', handleDocumentClick);
+
+    // Track active mouse movements to pause 3D camera rendering while user moves cursor
+    const onMouseMoveAnywhere = () => {
+      lastUserInteractionTimeRef.current = performance.now();
+    };
+    window.addEventListener('mousemove', onMouseMoveAnywhere, { passive: true });
+
+    // Track project panel hover to pause 3D turntable while reading text or viewing photos
+    const panelEl = document.getElementById('project-panel');
+    const onPanelEnter = () => {
+      isPanelHoveredRef.current = true;
+    };
+    const onPanelLeave = () => {
+      isPanelHoveredRef.current = false;
+    };
+    if (panelEl) {
+      panelEl.addEventListener('mouseenter', onPanelEnter);
+      panelEl.addEventListener('mouseleave', onPanelLeave);
+    }
 
     const canvas = map.getCanvas();
     const handlePointerDown = (e: PointerEvent) => {
@@ -1273,7 +1449,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
         el.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          selectOffice(off);
+          selectOfficeRef.current(off);
         });
 
         const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -1309,7 +1485,7 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
 
         el.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          selectProject(proj);
+          selectProjectRef.current(proj);
         });
 
         const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -1320,81 +1496,139 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         projectMarkersRef.current.push(marker);
       });
 
-      // 4. Render Regional Kangra Cluster Pin
+      // 4. Render Regional Kangra Cluster Pin (Covering all Kangra Valley projects)
       const kangraProjects = projects.filter(p =>
         p.location.includes('Kangra') ||
         p.location.includes('Palampur') ||
         p.location.includes('Dharamshala') ||
         p.location.includes('Neugal') ||
         p.location.includes('Baijnath') ||
-        p.location.includes('Chimbalhar')
+        p.location.includes('Chimbalhar') ||
+        p.location.includes('Samloti') ||
+        p.location.includes('Bundla') ||
+        p.location.includes('Billing') ||
+        p.location.includes('Jia') ||
+        p.city === 'Palampur' ||
+        p.city === 'Kangra' ||
+        p.city === 'Dharamshala' ||
+        p.city === 'Baijnath' ||
+        p.city === 'Bir'
       );
+
+      const kangraProjectIds = new Set(kangraProjects.map(p => p.id));
+
       if (kangraProjects.length > 1) {
+        const minLng = Math.min(...kangraProjects.map(p => p.lng));
+        const maxLng = Math.max(...kangraProjects.map(p => p.lng));
+        const minLat = Math.min(...kangraProjects.map(p => p.lat));
+        const maxLat = Math.max(...kangraProjects.map(p => p.lat));
+        const centerLng = (minLng + maxLng) / 2;
+        const centerLat = (minLat + maxLat) / 2;
+
         const clusterEl = document.createElement('div');
-        clusterEl.className = 'map-cluster-pin';
+        clusterEl.className = 'map-cluster-pin map-cluster-bubble';
         clusterEl.setAttribute('role', 'button');
         clusterEl.setAttribute('tabindex', '0');
         clusterEl.setAttribute('aria-label', `${kangraProjects.length} Projects in Kangra Valley`);
 
         clusterEl.innerHTML = `
           <div class="cluster-beacon-ring"></div>
-          <div class="cluster-core">
-            <span class="cluster-num">${kangraProjects.length}</span>
-            <span class="cluster-tag">PROJ</span>
+          <div class="cluster-badge-pill">
+            <span class="cluster-badge-count cluster-num">${kangraProjects.length}</span>
+            <span class="cluster-badge-tag">PROJECTS</span>
           </div>
           <div class="cluster-tooltip">
-            <strong>KANGRA VALLEY</strong>
-            <span>${kangraProjects.length} Projects · Click to Expand</span>
+            <strong>KANGRA VALLEY REGION</strong>
+            <span>${kangraProjects.length} Projects · Click to Zoom & Inspect</span>
           </div>
         `;
 
         clusterEl.addEventListener('click', (ev) => {
           ev.stopPropagation();
           map.fitBounds([
-            [76.15, 31.98],
-            [76.75, 32.28]
+            [minLng, minLat],
+            [maxLng, maxLat]
           ], {
-            padding: 90,
+            padding: { top: 90, bottom: 90, left: 90, right: 90 },
             duration: 1100
           });
         });
 
-        // Position Kangra Valley regional cluster at Kangra (76.28°E, 32.10°N), giving generous distance (~70px) from Palampur Studio (76.54°E, 32.12°N)
+        // Position cluster badge at the western center of Kangra Valley to avoid overlap with Palampur Studio
+        const clusterLng = (minLng + centerLng) / 2;
+        const clusterLat = centerLat;
+
         const clusterMarker = new maplibregl.Marker({ element: clusterEl, anchor: 'center' })
-          .setLngLat([76.28, 32.10])
+          .setLngLat([clusterLng, clusterLat])
           .addTo(map);
 
         (clusterMarker as any)._kangraProjects = kangraProjects;
+        (clusterMarker as any)._kangraProjectIds = kangraProjectIds;
         clusterMarkersRef.current.push(clusterMarker);
 
-        // Toggle cluster vs individual pins based on zoom
-        const checkZoom = () => {
+        // Dynamically size the transparent cluster bubble to cover all points in its geographic range
+        const updateClusterVisuals = () => {
           const z = map.getZoom();
           const showCluster = z < 9.5;
           clusterEl.style.display = showCluster ? 'flex' : 'none';
-          kangraProjects.forEach(p => {
-            const m = projectMarkersRef.current.find(mk => {
-              const pos = mk.getLngLat();
-              return Math.abs(pos.lng - p.lng) < 0.001 && Math.abs(pos.lat - p.lat) < 0.001;
-            });
-            if (m) {
+
+          if (showCluster) {
+            const pSW = map.project([minLng, minLat]);
+            const pNE = map.project([maxLng, maxLat]);
+            const pixelW = Math.abs(pNE.x - pSW.x) + 56;
+            const pixelH = Math.abs(pSW.y - pNE.y) + 56;
+            const diameter = Math.round(Math.max(96, Math.max(pixelW, pixelH)));
+            clusterEl.style.width = `${diameter}px`;
+            clusterEl.style.height = `${diameter}px`;
+            clusterEl.style.borderRadius = '50%';
+          }
+
+          // Strict hiding: Only show individual project pins when unclustered (zoomed in)
+          projectMarkersRef.current.forEach(m => {
+            const projId = (m as any)._project?.id;
+            if (kangraProjectIds.has(projId)) {
               m.getElement().style.display = showCluster ? 'none' : 'block';
             }
           });
         };
 
-        map.on('zoom', checkZoom);
-        checkZoom();
+        map.on('zoom', updateClusterVisuals);
+        map.on('move', updateClusterVisuals);
+        updateClusterVisuals();
       }
 
-      // Fit camera to encompass all studio points with desktop card offset
-      fitAllPoints(false);
+      // Synchronize True North indicator with map rotation and 3D perspective pitch
+      const updateNorthIndicators = () => {
+        const currentBearing = map.getBearing();
+        const currentPitch = map.getPitch();
+        const rot = -currentBearing;
+        if (headerNorthRef.current) {
+          headerNorthRef.current.style.transform = `perspective(350px) rotateX(${currentPitch}deg) rotateZ(${rot}deg)`;
+        }
+      };
 
-      onMapLoaded?.();
+      map.on('rotate', updateNorthIndicators);
+      map.on('pitch', updateNorthIndicators);
+      map.on('move', updateNorthIndicators);
+      updateNorthIndicators();
+
+      // Fit camera to encompass all studio points with desktop card offset
+      if (activeFilter) {
+        applyFilterToMap(activeFilter);
+      } else {
+        fitAllPoints(false);
+      }
+
+      onMapLoadedRef.current?.();
     });
 
     return () => {
       window.removeEventListener('click', handleDocumentClick);
+      window.removeEventListener('mousemove', onMouseMoveAnywhere);
+      if (panelEl) {
+        panelEl.removeEventListener('mouseenter', onPanelEnter);
+        panelEl.removeEventListener('mouseleave', onPanelLeave);
+      }
       canvas.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointercancel', handlePointerUp);
@@ -1417,53 +1651,29 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
       mapInstanceRef.current = null;
       demSourceRef.current = null;
     };
-  }, [projects, onMapLoaded, selectProject, selectOffice, closePanel, stopTurntable, clearFlightTimeouts]);
+  }, []);
 
   return (
     <div className="map-frame hero-map-frame" style={{ position: 'relative', width: '100%', height: '100%' }}>
-      {/* Map Header with discipline icons */}
+      {/* Map Header */}
       <div className="map-header">
         <div className="map-header-tagline" aria-label="Practice disciplines: Architecture, Landscape, Interior, Conservation">
           <span className="map-discipline" data-index="0">
-            <svg className="discipline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-              <rect x="2" y="8" width="12" height="6" rx="0.5" />
-              <path d="M5 8V5l3-3 3 3v3" />
-            </svg>
             <span className="discipline-word">Architecture</span>
           </span>
           <span className="discipline-sep" aria-hidden="true">·</span>
           <span className="map-discipline" data-index="1">
-            <svg className="discipline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-              <path d="M2 12c2-4 4-6 6-6s4 2 6 6" />
-              <circle cx="8" cy="5" r="1.5" />
-              <path d="M4 12c1-2 2-3 4-3" />
-            </svg>
             <span className="discipline-word">Landscape</span>
           </span>
           <span className="discipline-sep" aria-hidden="true">·</span>
           <span className="map-discipline" data-index="2">
-            <svg className="discipline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-              <rect x="3" y="3" width="10" height="10" rx="0.5" />
-              <path d="M6 7h4M6 9h2" />
-              <path d="M5 5h6" />
-            </svg>
             <span className="discipline-word">Interior</span>
           </span>
           <span className="discipline-sep" aria-hidden="true">·</span>
           <span className="map-discipline" data-index="3">
-            <svg className="discipline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-              <path d="M8 2l1.5 3 3.5.5-2.5 2.5.6 3.5L8 10l-3.1 1.5.6-3.5L3 5.5l3.5-.5z" />
-            </svg>
             <span className="discipline-word">Conservation</span>
           </span>
         </div>
-
-        <span className="map-label-right">
-          <span className="north-marker" aria-label="North indicator">
-            <img src="/mouseicon.svg" alt="North indicator" className="north-symbol-img" />
-            <span className="north-label">N</span>
-          </span>
-        </span>
       </div>
 
       {/* Intro Statement Card */}
@@ -1476,83 +1686,147 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
         <p className="hero-statement-desc">
           Dovetail Architecture works at the intersection of place, purpose and people. Our projects are guided by context, crafted with clarity, and built to last.
         </p>
-        <a href="#work" className="hero-statement-cta" id="hero-explore-btn">
-          <span>EXPLORE PROJECTS</span>
-          <span className="cta-arrow" aria-hidden="true">&rarr;</span>
-        </a>
         <div className="hero-statement-kpi" aria-label="Practice metrics">
           <div className="kpi-item">
-            <span className="kpi-num">20+</span>
+            <span className="kpi-num">{practiceStats.total}</span>
             <span className="kpi-label">PROJECTS</span>
           </div>
           <div className="kpi-divider" aria-hidden="true"></div>
           <div className="kpi-item">
-            <span className="kpi-num">6+</span>
+            <span className="kpi-num">{practiceStats.years}</span>
             <span className="kpi-label">YEARS</span>
           </div>
           <div className="kpi-divider" aria-hidden="true"></div>
           <div className="kpi-item">
-            <span className="kpi-num">8</span>
+            <span className="kpi-num">{practiceStats.states}</span>
             <span className="kpi-label">STATES</span>
           </div>
         </div>
       </aside>
 
       {/* Map Canvas */}
-      <div className="map-canvas-wrap hero-map-canvas" id="map-canvas-wrap">
+      <div
+        className={`map-canvas-wrap hero-map-canvas theme-places-${placeColorMode} ${isPanelOpen ? 'has-panel-open' : ''}`}
+        id="map-canvas-wrap"
+        style={{
+          '--place-color': PLACE_COLOR_CONFIG[placeColorMode].text,
+          '--place-dot-color': PLACE_COLOR_CONFIG[placeColorMode].dot,
+          '--place-capital-dot-color': PLACE_COLOR_CONFIG[placeColorMode].capitalDot,
+        } as React.CSSProperties}
+      >
         <div
           ref={mapContainerRef}
           style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
         />
 
-        {/* Circular Vignette Architectural Lens Mask over 3D Terrain */}
-        <div className="terrain-circular-mask" id="terrain-circular-mask" aria-hidden="true" />
+        {/* Fixed Top-Right 3D Architectural North Compass (Dynamic Rotation & 3D Perspective) */}
+        <div
+          className={`map-3d-north-widget ${isPanelOpen ? 'has-panel-open' : ''}`}
+          id="map-3d-north-compass"
+          role="button"
+          tabIndex={0}
+          onClick={handleResetBearing}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleResetBearing();
+            }
+          }}
+          title="True North · Click to Reset Bearing (0°)"
+          aria-label="True North Indicator"
+        >
+          <div className="compass-3d-stage">
+            <div
+              ref={headerNorthRef}
+              className="compass-3d-disk"
+            >
+              <img src="/mouseicon.svg" alt="North indicator" className="compass-3d-svg" />
+              <span className="compass-3d-label">N</span>
+            </div>
+          </div>
+        </div>
 
         {/* Map View Controls */}
+        {/* Map View Controls (Top Right) */}
         <div className="map-view-controls" aria-label="Map view controls">
-          <button
-            className="map-control-btn"
-            id="map-recenter-btn"
-            title="Reset Map to Default Fit Points (Esc)"
-            onClick={resetMap}
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <circle cx="12" cy="12" r="8" />
-              <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-            </svg>
-            <span>RESET MAP</span>
-          </button>
+          <div className="map-controls-cluster">
+            {/* Left Stack: Reset Map (Top) & Options (Bottom) */}
+            <div className="map-action-stack">
+              <button
+                className="map-control-btn"
+                id="map-recenter-btn"
+                title="Reset Map to Default Fit Points (Esc)"
+                onClick={resetMap}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                </svg>
+                <span>RESET MAP</span>
+              </button>
 
-          {/* Universal Options Dropdown Arrow Toggle Button */}
-          <button
-            className={`map-control-btn map-dropdown-toggle ${isControlsOpen ? 'map-control-btn--active' : ''}`}
-            id="map-controls-dropdown-btn"
-            title="Toggle Map Options"
-            onClick={() => setIsControlsOpen(prev => !prev)}
-            aria-expanded={isControlsOpen}
-          >
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <line x1="4" y1="6" x2="20" y2="6" />
-              <line x1="4" y1="12" x2="20" y2="12" />
-              <line x1="4" y1="18" x2="20" y2="18" />
-            </svg>
-            <span>OPTIONS</span>
-            <svg
-              className="dropdown-chevron-svg"
-              viewBox="0 0 12 12"
-              width="9"
-              height="9"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              style={{
-                transform: isControlsOpen ? 'rotate(180deg)' : 'none',
-                transition: 'transform 0.25s ease'
-              }}
-            >
-              <path d="M2.5 4.5L6 8l3.5-3.5" />
-            </svg>
-          </button>
+              {/* Universal Options Dropdown Arrow Toggle Button */}
+              <button
+                className={`map-control-btn map-dropdown-toggle ${isControlsOpen ? 'map-control-btn--active' : ''}`}
+                id="map-controls-dropdown-btn"
+                title="Toggle Map Options"
+                onClick={() => setIsControlsOpen(prev => !prev)}
+                aria-expanded={isControlsOpen}
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <line x1="4" y1="18" x2="20" y2="18" />
+                </svg>
+                <span>OPTIONS</span>
+                <svg
+                  className="dropdown-chevron-svg"
+                  viewBox="0 0 12 12"
+                  width="9"
+                  height="9"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  style={{
+                    transform: isControlsOpen ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.25s ease'
+                  }}
+                >
+                  <path d="M2.5 4.5L6 8l3.5-3.5" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Right: Vertical Zoom Controls (+ over -) */}
+            <div className="map-zoom-controls map-zoom-controls--vertical" aria-label="Map zoom controls">
+              <button
+                type="button"
+                className="map-zoom-btn"
+                id="map-zoom-in"
+                title="Zoom In"
+                onClick={handleZoomIn}
+                aria-label="Zoom In"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+              <div className="map-zoom-divider" aria-hidden="true" />
+              <button
+                type="button"
+                className="map-zoom-btn"
+                id="map-zoom-out"
+                title="Zoom Out"
+                onClick={handleZoomOut}
+                aria-label="Zoom Out"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </div>
+          </div>
 
           {/* Collapsible Controls Drawer (always open on desktop, toggled via dropdown on mobile) */}
           <div className={`map-collapsible-controls ${isControlsOpen ? 'is-open' : ''}`}>
@@ -1570,14 +1844,14 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
             <button
               className={`map-control-btn ${showContourColors ? 'map-control-btn--active' : ''}`}
               id="map-color-btn"
-              title={showContourColors ? "Switch Contours to Monochrome B&W" : "Switch Contours to Elevation Color"}
+              title={showContourColors ? "Switch Contours to Architectural Monochrome (B&W)" : "Show Elevation Tiers (Altitude-based contour colors)"}
               onClick={toggleContourColors}
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" />
               </svg>
-              <span>COLOR</span>
+              <span>ELEVATION TIERS</span>
             </button>
 
             {/* Contour Density Slider */}
@@ -1608,6 +1882,48 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
                 <span>MAX</span>
               </div>
             </div>
+            {/* Place Names Color Switcher (Grey default, Black, Pink) */}
+            <div className="map-place-color-block">
+              <button
+                className={`map-control-btn map-place-color-btn ${placeColorMode !== 'grey' ? 'map-control-btn--active' : ''}`}
+                id="map-place-color-btn"
+                title={`Place color: ${PLACE_COLOR_CONFIG[placeColorMode].label}. Click to cycle (Grey -> Black -> Pink)`}
+                onClick={cyclePlaceColorMode}
+              >
+                <span
+                  style={{
+                    width: '9px',
+                    height: '9px',
+                    borderRadius: '50%',
+                    backgroundColor: PLACE_COLOR_CONFIG[placeColorMode].dot,
+                    border: '1.2px solid rgba(255, 255, 255, 0.9)',
+                    boxShadow: placeColorMode === 'pink' ? '0 0 6px rgba(184, 36, 88, 0.6)' : 'none',
+                    display: 'inline-block',
+                    flexShrink: 0
+                  }}
+                />
+                <span>PLACE: {PLACE_COLOR_CONFIG[placeColorMode].label}</span>
+              </button>
+              <div className="map-place-color-chips" aria-label="Place color selection options">
+                {(['grey', 'black', 'pink'] as PlaceColorMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`map-place-chip ${placeColorMode === mode ? 'is-active' : ''}`}
+                    onClick={() => setPlaceColorMode(mode)}
+                    title={`Switch Place Names to ${PLACE_COLOR_CONFIG[mode].label}`}
+                    aria-label={`Switch Place Names to ${PLACE_COLOR_CONFIG[mode].label}`}
+                  >
+                    <span
+                      className="map-place-chip-dot"
+                      style={{ backgroundColor: PLACE_COLOR_CONFIG[mode].dot }}
+                    />
+                    <span>{mode === 'grey' ? 'GREY' : mode === 'black' ? 'BLACK' : 'PINK'}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <label className="map-control-toggle" id="map-cities-toggle" title="Toggle Place and City Names" role="button">
               <input
                 type="checkbox"
@@ -2035,95 +2351,49 @@ export const ProjectMap: React.FC<ProjectMapProps> = ({
           )}
         </aside>
 
-        {/* Zoom In / Zoom Out Controls (+ / -) in Bottom Right */}
-        <div className="map-zoom-controls" aria-label="Map zoom controls">
-          <button
-            type="button"
-            className="map-zoom-btn"
-            id="map-zoom-in"
-            title="Zoom In"
-            onClick={handleZoomIn}
-            aria-label="Zoom In"
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
-          <div className="map-zoom-divider" aria-hidden="true" />
-          <button
-            type="button"
-            className="map-zoom-btn"
-            id="map-zoom-out"
-            title="Zoom Out"
-            onClick={handleZoomOut}
-            aria-label="Zoom Out"
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Map Footer with horizontal filterable legend and elevation */}
-      <div className="map-footer">
-        <div id="map-legend-horizontal" className="map-legend-horizontal">
-          <div className="legend-items-horizontal">
+        {/* Professional Architectural Map Legend Card (Bottom-Right) */}
+        <div id="map-legend-card" className="map-legend-card" aria-label="Project typologies legend">
+          <div className="legend-card-header">
+            <span className="legend-card-title">TYPOLOGY</span>
+            {activeFilter ? (
+              <button
+                className="legend-reset-btn"
+                id="legend-reset-btn"
+                title="Reset active filter"
+                onClick={clearFilter}
+              >
+                RESET
+              </button>
+            ) : (
+              <span className="legend-card-total">{projects.length} PROJECTS</span>
+            )}
+          </div>
+          <div className="legend-card-list">
             {LEGEND_CATEGORIES.map((cat) => {
               const isSelected = activeFilter === cat.key;
               return (
                 <div
                   key={cat.key}
-                  className={`legend-item legend-item-typology ${isSelected ? 'is-active' : ''}`}
+                  className={`legend-card-row ${isSelected ? 'is-active' : ''}`}
                   data-filter={cat.key}
                   tabIndex={0}
                   role="button"
                   aria-label={`Filter by ${cat.label}`}
                   onClick={() => handleFilterClick(cat.key)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '4px 8px',
-                    borderRadius: '2px',
-                    background: isSelected ? 'rgba(17, 17, 17, 0.08)' : 'transparent',
-                    cursor: 'pointer'
-                  }}
                 >
-                  <span className="legend-dot" style={{ background: cat.color, width: '7px', height: '7px', borderRadius: '50%' }}></span>
-                  <span className="legend-item-name" style={{ fontFamily: 'var(--mono)', fontSize: '8px', letterSpacing: '0.08em' }}>{cat.label}</span>
-                  <span className="legend-count" style={{ fontFamily: 'var(--mono)', fontSize: '7px', color: 'var(--muted)' }}>{cat.count}</span>
+                  <div className="legend-row-left">
+                    <span className="legend-dot" style={{ backgroundColor: cat.color }}></span>
+                    <span className="legend-item-name">{cat.label}</span>
+                  </div>
+                  <span className="legend-count-badge">{cat.count}</span>
                 </div>
               );
             })}
-            {activeFilter && (
-              <button
-                className="legend-reset-btn"
-                id="legend-reset-btn"
-                title="Reset filter"
-                onClick={clearFilter}
-                style={{
-                  fontFamily: 'var(--mono)',
-                  fontSize: '7.5px',
-                  letterSpacing: '0.12em',
-                  padding: '3px 8px',
-                  border: '1px solid var(--line-med)',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  marginLeft: '8px'
-                }}
-              >
-                RESET
-              </button>
-            )}
           </div>
         </div>
-
-        <span id="elevationReadout" className="map-elevation-readout">
-          {elevation}
-        </span>
       </div>
     </div>
   );
 };
+
+export const ProjectMap = React.memo<ProjectMapProps>(ProjectMapComponent);
