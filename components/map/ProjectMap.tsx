@@ -567,12 +567,12 @@ const ProjectMapComponent: React.FC<ProjectMapProps> = ({
           (label as HTMLElement).style.display = 'none';
         }
       } else if (isInspecting) {
-        // In 3D site focus: keep other points clearly visible with 88% opacity, on lower z-index and fully clickable
+        // In 3D site focus: keep other points visible with 75% opacity, on lower z-index and fully clickable
         el.classList.remove('is-highlighted');
         el.classList.add('is-inspecting-other');
         el.classList.remove('is-dimmed');
         el.style.display = '';
-        el.style.opacity = '0.88';
+        el.style.opacity = '0.75';
         el.style.zIndex = '20';
         el.style.pointerEvents = 'auto';
         const label = el.querySelector('.map-pin-label');
@@ -1273,7 +1273,7 @@ const ProjectMapComponent: React.FC<ProjectMapProps> = ({
             },
             paint: {
               'text-color': '#11141a',
-              'text-halo-color': '#ffffff',
+              'text-halo-color': 'rgba(255, 255, 255, 0.75)',
               'text-halo-width': 2.2,
               'text-opacity': [
                 'interpolate', ['linear'], ['zoom'],
@@ -1533,9 +1533,8 @@ const ProjectMapComponent: React.FC<ProjectMapProps> = ({
 
         clusterEl.innerHTML = `
           <div class="cluster-beacon-ring"></div>
-          <div class="cluster-badge-pill">
-            <span class="cluster-badge-count cluster-num">${kangraProjects.length}</span>
-            <span class="cluster-badge-tag">PROJECTS</span>
+          <div class="cluster-center-badge" title="${kangraProjects.length} Projects in Kangra Valley">
+            <span class="cluster-num">${kangraProjects.length}</span>
           </div>
           <div class="cluster-tooltip">
             <strong>KANGRA VALLEY REGION</strong>
@@ -1554,8 +1553,8 @@ const ProjectMapComponent: React.FC<ProjectMapProps> = ({
           });
         });
 
-        // Position cluster badge at the western center of Kangra Valley to avoid overlap with Palampur Studio
-        const clusterLng = (minLng + centerLng) / 2;
+        // Position cluster bubble centered on Kangra Valley region
+        const clusterLng = centerLng;
         const clusterLat = centerLat;
 
         const clusterMarker = new maplibregl.Marker({ element: clusterEl, anchor: 'center' })

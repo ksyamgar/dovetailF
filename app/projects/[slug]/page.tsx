@@ -1,9 +1,10 @@
 import React from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 import { getAllProjects, getProjectBySlug } from '@/lib/data/projects';
+import { ProjectDetailHero } from '@/components/projects/ProjectDetailHero';
+import { ProjectGallery } from '@/components/projects/ProjectGallery';
 
 interface ProjectDetailPageProps {
   params: Promise<{ slug: string }>;
@@ -43,7 +44,7 @@ export default async function ProjectDetailPage({ params }: ProjectDetailPagePro
       {/* Back Navigation */}
       <nav className="project-detail-nav">
         <Link href="/projects" className="project-detail-back-link">
-          &larr; BACK TO ALL PROJECTS
+          <span className="back-arrow">&larr;</span> BACK TO ALL PROJECTS
         </Link>
       </nav>
 
@@ -66,17 +67,8 @@ export default async function ProjectDetailPage({ params }: ProjectDetailPagePro
         </p>
       </header>
 
-      {/* Hero Image */}
-      <div className="project-detail-hero">
-        <Image
-          src={project.heroImage}
-          alt={project.name}
-          width={1400}
-          height={800}
-          priority
-          className="project-hero-img"
-        />
-      </div>
+      {/* Hero Section */}
+      <ProjectDetailHero project={project} />
 
       {/* Two Column Layout: Specifications + Quote (Left) & Summary (Right) */}
       <div className="project-text-grid">
@@ -131,28 +123,8 @@ export default async function ProjectDetailPage({ params }: ProjectDetailPagePro
         </div>
       </div>
 
-      {/* Image Gallery (Centered with full mobile width and zero overflow) */}
-      {project.images && project.images.length > 0 && (
-        <section className="project-gallery-section">
-          <h2 className="project-gallery-heading">
-            PROJECT GALLERY & FIELD DOCUMENTATION
-          </h2>
-          <div className="project-gallery-grid">
-            {project.images.map((imgSrc, i) => (
-              <div key={i} className="project-gallery-item">
-                <Image
-                  src={imgSrc}
-                  alt={`${project.name} documentation ${i + 1}`}
-                  width={800}
-                  height={550}
-                  loading="lazy"
-                  className="project-gallery-img"
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Project Gallery & Field Documentation */}
+      <ProjectGallery images={project.images} projectName={project.name} />
     </div>
   );
 }

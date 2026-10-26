@@ -87,7 +87,7 @@ export const CustomCursor: React.FC = () => {
       // 3. Project cards, links, buttons, toggles, controls, inputs, nav
       if (
         target.closest(
-          'a, button, .project-card-kkaa, .related-card, .legend-item, [role="button"], label, input, select, textarea, .map-control-toggle, .map-control-btn, .panel-close-btn, .nav-link, .filter-btn, .panel-hero-actions, .cluster-badge-pill'
+          'a, button, .project-card-kkaa, .related-card, .legend-item, [role="button"], label, input, select, textarea, .map-control-toggle, .map-control-btn, .panel-close-btn, .nav-link, .filter-btn, .panel-hero-actions, .cluster-badge-pill, .cluster-center-badge, .map-cluster-pin'
         )
       ) {
         cursor.classList.add('is-hovering-link');
